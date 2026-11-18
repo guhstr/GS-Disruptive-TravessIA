@@ -1,0 +1,1983 @@
+diff --git a/.env.example b/.env.example
+new file mode 100644
+index 0000000..9ae423f
+--- /dev/null
++++ b/.env.example
+@@ -0,0 +1,5 @@
++# Endereco do gateway Java. Deixe comentado para usar o padrao:
++#   simulador iOS / web -> http://localhost:8080/api
++#   emulador Android    -> http://10.0.2.2:8080/api
++# Em aparelho fisico (Expo Go), use o IP do computador na rede local:
++# EXPO_PUBLIC_API_URL=http://192.168.0.10:8080/api
+diff --git a/.gitignore b/.gitignore
+index d914c32..7124482 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -39,3 +39,6 @@ yarn-error.*
+ # generated native folders
+ /ios
+ /android
++
++# env local
++.env
+diff --git a/package-lock.json b/package-lock.json
+index 82e1b49..a4415e9 100644
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -1,11 +1,11 @@
+ {
+-  "name": "gs_reactnative_travessia",
++  "name": "travessia",
+   "version": "1.0.0",
+   "lockfileVersion": 3,
+   "requires": true,
+   "packages": {
+     "": {
+-      "name": "gs_reactnative_travessia",
++      "name": "travessia",
+       "version": "1.0.0",
+       "dependencies": {
+         "@expo/vector-icons": "^15.0.2",
+@@ -16,6 +16,7 @@
+         "axios": "^1.21.0",
+         "expo": "~58.0.23",
+         "expo-location": "~58.0.20",
++        "expo-speech": "~58.0.4",
+         "expo-status-bar": "~58.0.4",
+         "react": "19.3.0",
+         "react-native": "0.88.1",
+@@ -3258,6 +3259,15 @@
+         "node": "^22.13.0 || ^24.3.0 || ^26.0.0 || >=27.0.0"
+       }
+     },
++    "node_modules/expo-speech": {
++      "version": "58.0.4",
++      "resolved": "https://registry.npmjs.org/expo-speech/-/expo-speech-58.0.4.tgz",
++      "integrity": "sha512-AOwi6VkWfLh4OVUlK1bpvMqTgXHVMqcb+sqBu+mHfiCp4DZpsdDC7JGJEterXz7jdF9qPFwqwrtIarA2EaDHuQ==",
++      "license": "MIT",
++      "peerDependencies": {
++        "expo": "*"
++      }
++    },
+     "node_modules/expo-status-bar": {
+       "version": "58.0.4",
+       "resolved": "https://registry.npmjs.org/expo-status-bar/-/expo-status-bar-58.0.4.tgz",
+diff --git a/package.json b/package.json
+index fe16d53..e49a93e 100644
+--- a/package.json
++++ b/package.json
+@@ -11,6 +11,7 @@
+     "axios": "^1.21.0",
+     "expo": "~58.0.23",
+     "expo-location": "~58.0.20",
++    "expo-speech": "~58.0.4",
+     "expo-status-bar": "~58.0.4",
+     "react": "19.3.0",
+     "react-native": "0.88.1",
+diff --git a/src/componentes/CartaoResumoIa.tsx b/src/componentes/CartaoResumoIa.tsx
+new file mode 100644
+index 0000000..25ebd60
+--- /dev/null
++++ b/src/componentes/CartaoResumoIa.tsx
+@@ -0,0 +1,210 @@
++import { Ionicons } from '@expo/vector-icons';
++import React, { useState } from 'react';
++import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
++import { estilosGlobais } from '../estilos/estilosGlobais';
++import { bordas, cores, espacamentos, fontes } from '../estilos/tema';
++import { extrairMensagemErro } from '../servicos/clienteApi';
++import { obterResumoIaApi } from '../servicos/servicoSolicitacao';
++import { ResumoSolicitacoesIa } from '../tipos/modelos';
++
++const PERIODOS = [7, 30, 90];
++
++// Resumo das solicitacoes para o gestor: indicadores agregados (sem dados pessoais) e
++// um texto com recomendacoes escrito pela IA.
++export const CartaoResumoIa: React.FC = () => {
++  const [dias, setDias] = useState<number>(30);
++  const [resumo, setResumo] = useState<ResumoSolicitacoesIa | null>(null);
++  const [carregando, setCarregando] = useState<boolean>(false);
++  const [erro, setErro] = useState<string | null>(null);
++
++  async function gerar(periodo: number) {
++    setDias(periodo);
++    setCarregando(true);
++    setErro(null);
++    try {
++      setResumo(await obterResumoIaApi(periodo));
++    } catch (falha) {
++      setErro(extrairMensagemErro(falha));
++    } finally {
++      setCarregando(false);
++    }
++  }
++
++  const indicadores = resumo?.indicadores;
++  const linhas = (resumo?.resumo ?? '').split('\n').map((l) => l.trim()).filter(Boolean);
++
++  return (
++    <View style={[estilosGlobais.cartao, estilos.cartao]}>
++      <View style={estilos.cabecalho}>
++        <Ionicons name="analytics-outline" size={20} color={cores.primaria} />
++        <Text style={estilos.titulo}>Resumo com IA para o gestor</Text>
++      </View>
++      <Text style={estilos.descricao}>
++        Indicadores do período e recomendações escritas pela IA. Nenhum dado pessoal é enviado.
++      </Text>
++
++      <View style={estilos.linhaPeriodos}>
++        {PERIODOS.map((periodo) => (
++          <TouchableOpacity
++            key={periodo}
++            style={[estilos.chipPeriodo, dias === periodo && resumo ? estilos.chipPeriodoAtivo : null]}
++            onPress={() => gerar(periodo)}
++            disabled={carregando}
++            accessibilityRole="button"
++            accessibilityLabel={`Gerar resumo dos últimos ${periodo} dias`}
++          >
++            <Text style={[estilos.textoPeriodo, dias === periodo && resumo ? estilos.textoPeriodoAtivo : null]}>
++              {periodo} dias
++            </Text>
++          </TouchableOpacity>
++        ))}
++      </View>
++
++      {carregando ? (
++        <View style={estilos.carregando}>
++          <ActivityIndicator color={cores.primaria} />
++          <Text style={estilos.descricao}>Analisando as solicitações...</Text>
++        </View>
++      ) : null}
++      {erro ? <Text style={estilos.erro}>{erro}</Text> : null}
++
++      {resumo && indicadores && !carregando ? (
++        <>
++          <View style={estilos.grade}>
++            <Indicador valor={String(indicadores.totalSolicitacoes)} rotulo="solicitações" />
++            <Indicador valor={`${indicadores.percentualComChuva}%`} rotulo="com chuva" />
++            <Indicador valor={`${indicadores.percentualConfirmadas}%`} rotulo="confirmadas" />
++          </View>
++          <View style={estilos.blocoTexto}>
++            {linhas.map((linha, indice) =>
++              linha.startsWith('- ') ? (
++                <View key={indice} style={estilos.linhaRecomendacao}>
++                  <Ionicons name="checkmark-circle-outline" size={16} color={cores.secundaria} />
++                  <Text style={estilos.textoRecomendacao}>{linha.slice(2)}</Text>
++                </View>
++              ) : (
++                <Text key={indice} style={estilos.textoResumo}>
++                  {linha}
++                </Text>
++              )
++            )}
++          </View>
++          <Text style={estilos.origem}>
++            {resumo.geradoPorIa
++              ? 'Texto gerado pela IA a partir dos indicadores acima.'
++              : 'IA indisponível: texto montado automaticamente a partir dos indicadores.'}
++          </Text>
++        </>
++      ) : null}
++    </View>
++  );
++};
++
++const Indicador: React.FC<{ valor: string; rotulo: string }> = ({ valor, rotulo }) => (
++  <View style={estilos.indicador}>
++    <Text style={estilos.valorIndicador}>{valor}</Text>
++    <Text style={estilos.rotuloIndicador}>{rotulo}</Text>
++  </View>
++);
++
++const estilos = StyleSheet.create({
++  cartao: {
++    borderColor: cores.primaria,
++  },
++  cabecalho: {
++    flexDirection: 'row',
++    alignItems: 'center',
++    gap: 8,
++  },
++  titulo: {
++    fontSize: fontes.tamanhos.subtitulo,
++    fontWeight: '800',
++    color: cores.textoPrincipal,
++  },
++  descricao: {
++    fontSize: fontes.tamanhos.pequeno,
++    color: cores.textoSecundario,
++    marginTop: 4,
++  },
++  linhaPeriodos: {
++    flexDirection: 'row',
++    gap: 8,
++    marginTop: espacamentos.sm,
++  },
++  chipPeriodo: {
++    borderWidth: 1,
++    borderColor: cores.primaria,
++    borderRadius: bordas.raioCircular,
++    paddingHorizontal: 14,
++    paddingVertical: 8,
++  },
++  chipPeriodoAtivo: {
++    backgroundColor: cores.primaria,
++  },
++  textoPeriodo: {
++    color: cores.primaria,
++    fontWeight: '700',
++    fontSize: fontes.tamanhos.pequeno,
++  },
++  textoPeriodoAtivo: {
++    color: cores.textoClaro,
++  },
++  carregando: {
++    flexDirection: 'row',
++    alignItems: 'center',
++    gap: 8,
++    marginTop: espacamentos.sm,
++  },
++  erro: {
++    color: cores.perigo,
++    marginTop: espacamentos.sm,
++    fontSize: fontes.tamanhos.pequeno,
++  },
++  grade: {
++    flexDirection: 'row',
++    gap: 8,
++    marginTop: espacamentos.md,
++  },
++  indicador: {
++    flex: 1,
++    backgroundColor: cores.primariaClara,
++    borderRadius: bordas.raioMedio,
++    paddingVertical: 10,
++    alignItems: 'center',
++  },
++  valorIndicador: {
++    fontSize: fontes.tamanhos.titulo,
++    fontWeight: '900',
++    color: cores.primaria,
++  },
++  rotuloIndicador: {
++    fontSize: 12,
++    color: cores.textoSecundario,
++  },
++  blocoTexto: {
++    marginTop: espacamentos.md,
++    gap: 8,
++  },
++  textoResumo: {
++    fontSize: fontes.tamanhos.corpo,
++    lineHeight: 23,
++    color: cores.textoPrincipal,
++  },
++  linhaRecomendacao: {
++    flexDirection: 'row',
++    gap: 8,
++    alignItems: 'flex-start',
++  },
++  textoRecomendacao: {
++    flex: 1,
++    fontSize: fontes.tamanhos.corpo,
++    lineHeight: 22,
++    color: cores.textoPrincipal,
++  },
++  origem: {
++    marginTop: espacamentos.sm,
++    fontSize: 12,
++    color: cores.textoSecundario,
++    fontStyle: 'italic',
++  },
++});
+diff --git a/src/navegacao/NavegadorPrincipal.tsx b/src/navegacao/NavegadorPrincipal.tsx
+index 7789dc8..d71f339 100644
+--- a/src/navegacao/NavegadorPrincipal.tsx
++++ b/src/navegacao/NavegadorPrincipal.tsx
+@@ -6,6 +6,7 @@ import React from 'react';
+ import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+ import { usarAutenticacao } from '../contextos/ContextoAutenticacao';
+ import { cores, fontes } from '../estilos/tema';
++import { TelaAssistente } from '../telas/TelaAssistente';
+ import { TelaCadastro } from '../telas/TelaCadastro';
+ import { TelaFormularioSemaforo } from '../telas/TelaFormularioSemaforo';
+ import { TelaHistorico } from '../telas/TelaHistorico';
+@@ -40,6 +41,8 @@ const NavegadorAbasPrincipais: React.FC = () => {
+             nomeIcone = 'walk-outline';
+           } else if (route.name === 'AbaHistorico') {
+             nomeIcone = 'time-outline';
++          } else if (route.name === 'AbaDuvidas') {
++            nomeIcone = 'chatbubble-ellipses-outline';
+           } else if (route.name === 'AbaPerfil') {
+             nomeIcone = 'person-circle-outline';
+           }
+@@ -62,6 +65,11 @@ const NavegadorAbasPrincipais: React.FC = () => {
+         component={TelaHistorico}
+         options={{ title: 'Histórico' }}
+       />
++      <Abas.Screen
++        name="AbaDuvidas"
++        component={TelaAssistente}
++        options={{ title: 'Dúvidas' }}
++      />
+       <Abas.Screen
+         name="AbaPerfil"
+         component={TelaPerfil}
+diff --git a/src/navegacao/tiposNavegacao.ts b/src/navegacao/tiposNavegacao.ts
+index 1c1fc64..f3b6f21 100644
+--- a/src/navegacao/tiposNavegacao.ts
++++ b/src/navegacao/tiposNavegacao.ts
+@@ -9,6 +9,7 @@ export type ParametrosAbasPrincipais = {
+   AbaSemaforos: undefined;
+   AbaTravessia: { semaforoInicial?: Semaforo } | undefined;
+   AbaHistorico: undefined;
++  AbaDuvidas: undefined;
+   AbaPerfil: undefined;
+ };
+ 
+diff --git a/src/servicos/clienteApi.ts b/src/servicos/clienteApi.ts
+index 14de408..82b525d 100644
+--- a/src/servicos/clienteApi.ts
++++ b/src/servicos/clienteApi.ts
+@@ -1,14 +1,22 @@
+ import AsyncStorage from '@react-native-async-storage/async-storage';
+ import axios, { AxiosError } from 'axios';
++import { Platform } from 'react-native';
+ 
+ export const CHAVE_TOKEN_STORAGE = '@TravessIA:token';
+ export const CHAVE_USUARIO_STORAGE = '@TravessIA:usuario';
+ 
+-export const URL_BASE_API = 'https://travessia-gateway.onrender.com/api';
++// No simulador iOS e no navegador, localhost aponta para o computador.
++// No emulador Android, o computador é acessado pelo IP 10.0.2.2.
++// Em aparelho físico, defina EXPO_PUBLIC_API_URL com o IP da máquina na rede local.
++const URL_PADRAO_LOCAL =
++  Platform.OS === 'android' ? 'http://10.0.2.2:8080/api' : 'http://localhost:8080/api';
++
++export const URL_BASE_API = process.env.EXPO_PUBLIC_API_URL || URL_PADRAO_LOCAL;
+ 
+ export const clienteApi = axios.create({
+   baseURL: URL_BASE_API,
+-  timeout: 60000,
++  // A solicitacao de travessia aguarda a confirmacao do semaforo (ESP32), que pode levar ate ~35 s.
++  timeout: 90000,
+   headers: {
+     'Content-Type': 'application/json',
+   },
+@@ -34,7 +42,7 @@ export function extrairMensagemErro(erro: unknown): string {
+   if (axios.isAxiosError(erro)) {
+     const erroAxios = erro as AxiosError<Record<string, unknown>>;
+     if (!erroAxios.response) {
+-      return 'Não foi possível conectar ao servidor (https://travessia-gateway.onrender.com). Verifique sua conexão ou aguarde o servidor no Render iniciar.';
++      return `Não foi possível conectar ao servidor (${URL_BASE_API}). Verifique se o backend está em execução e se o endereço está correto.`;
+     }
+ 
+     const status = erroAxios.response.status;
+diff --git a/src/servicos/leituraEmVoz.ts b/src/servicos/leituraEmVoz.ts
+new file mode 100644
+index 0000000..fb29b0b
+--- /dev/null
++++ b/src/servicos/leituraEmVoz.ts
+@@ -0,0 +1,21 @@
++import * as Speech from 'expo-speech';
++
++// Remove as marcacoes de fonte ([1], [1, 2]) para a leitura em voz alta ficar natural.
++export function textoParaLeitura(texto: string): string {
++  return texto.replace(/\s*\[\d+(?:\s*,\s*\d+)*\]/g, '').trim();
++}
++
++export function lerEmVoz(texto: string, aoTerminar?: () => void): void {
++  Speech.stop();
++  Speech.speak(textoParaLeitura(texto), {
++    language: 'pt-BR',
++    rate: 0.9,
++    onDone: aoTerminar,
++    onStopped: aoTerminar,
++    onError: aoTerminar,
++  });
++}
++
++export function pararLeitura(): void {
++  Speech.stop();
++}
+diff --git a/src/servicos/servicoAssistente.ts b/src/servicos/servicoAssistente.ts
+new file mode 100644
+index 0000000..6558749
+--- /dev/null
++++ b/src/servicos/servicoAssistente.ts
+@@ -0,0 +1,33 @@
++import {
++  MensagemHistoricoAssistente,
++  OrientacaoTravessia,
++  RespostaAssistente,
++} from '../tipos/modelos';
++import { clienteApi } from './clienteApi';
++
++export async function perguntarAssistenteApi(
++  pergunta: string,
++  historico: MensagemHistoricoAssistente[] = [],
++  simplificar = false,
++): Promise<RespostaAssistente> {
++  const resposta = await clienteApi.post<RespostaAssistente>('/assistente/perguntas', {
++    pergunta: pergunta.trim(),
++    historico,
++    simplificar,
++  });
++  return resposta.data;
++}
++
++// Orientacao para quem vai atravessar, gerada com dicas da base para o clima e o periodo do dia.
++export async function obterOrientacaoApi(
++  condicaoClimatica: string,
++  segundosExtras: number,
++  periodo: 'dia' | 'noite',
++): Promise<OrientacaoTravessia> {
++  const resposta = await clienteApi.post<OrientacaoTravessia>('/assistente/orientacao', {
++    condicaoClimatica,
++    segundosExtras,
++    periodo,
++  });
++  return resposta.data;
++}
+diff --git a/src/servicos/servicoDispositivo.ts b/src/servicos/servicoDispositivo.ts
+new file mode 100644
+index 0000000..e3080db
+--- /dev/null
++++ b/src/servicos/servicoDispositivo.ts
+@@ -0,0 +1,8 @@
++import { EstadoDispositivo } from '../tipos/modelos';
++import { clienteApi } from './clienteApi';
++
++// Estado do semaforo simulado (ESP32), com a contagem medida no relogio do proprio dispositivo.
++export async function consultarEstadoDispositivoApi(): Promise<EstadoDispositivo> {
++  const resposta = await clienteApi.get<EstadoDispositivo>('/dispositivo/estado', { timeout: 5000 });
++  return resposta.data;
++}
+diff --git a/src/servicos/servicoSolicitacao.ts b/src/servicos/servicoSolicitacao.ts
+index 22ae31c..a4eda2b 100644
+--- a/src/servicos/servicoSolicitacao.ts
++++ b/src/servicos/servicoSolicitacao.ts
+@@ -1,6 +1,7 @@
+ import {
+   DadosNovaSolicitacao,
+   RespostaPaginada,
++  ResumoSolicitacoesIa,
+   SolicitacaoTravessia,
+ } from '../tipos/modelos';
+ import { clienteApi } from './clienteApi';
+@@ -38,3 +39,12 @@ export async function atualizarSolicitacaoTravessiaApi(
+ export async function removerSolicitacaoTravessiaApi(id: number): Promise<void> {
+   await clienteApi.delete(`/solicitacoes/${id}`);
+ }
++
++// Resumo das solicitacoes com IA (somente ADMIN): indicadores agregados e recomendacoes.
++export async function obterResumoIaApi(dias = 30): Promise<ResumoSolicitacoesIa> {
++  const resposta = await clienteApi.get<ResumoSolicitacoesIa>('/solicitacoes/resumo-ia', {
++    params: { dias },
++    timeout: 90000,
++  });
++  return resposta.data;
++}
+diff --git a/src/servicos/statusDispositivo.ts b/src/servicos/statusDispositivo.ts
+new file mode 100644
+index 0000000..5728c74
+--- /dev/null
++++ b/src/servicos/statusDispositivo.ts
+@@ -0,0 +1,39 @@
++import { StatusDispositivo } from '../tipos/modelos';
++
++export interface DescricaoStatus {
++  titulo: string;
++  confirmado: boolean;
++}
++
++const DESCRICOES: Record<StatusDispositivo, DescricaoStatus> = {
++  EXECUTADO: { titulo: 'Semáforo confirmou o tempo extra', confirmado: true },
++  ACEITO: { titulo: 'Semáforo aceitou; tempo extra será aplicado na próxima travessia', confirmado: true },
++  PENDENTE: { titulo: 'Aguardando resposta do semáforo', confirmado: false },
++  REJEITADO: { titulo: 'Semáforo recusou o pedido', confirmado: false },
++  SEM_CONFIRMACAO: { titulo: 'Semáforo não respondeu a tempo', confirmado: false },
++  FALHA_MQTT: { titulo: 'Falha de comunicação com o semáforo', confirmado: false },
++  DISPOSITIVO_OFFLINE: { titulo: 'Semáforo desconectado', confirmado: false },
++  DISPOSITIVO_REINICIADO: { titulo: 'Semáforo reiniciou e o pedido se perdeu', confirmado: false },
++  SEMAFORO_OCUPADO: { titulo: 'Já existe um pedido em andamento neste semáforo', confirmado: false },
++  FALHA_COMUNICACAO_IOT: { titulo: 'Serviço do semáforo indisponível', confirmado: false },
++};
++
++const MOTIVOS: Record<string, string> = {
++  EXTENSAO_JA_PROGRAMADA: 'esta travessia já recebeu tempo extra',
++  SEGUNDOS_FORA_DO_LIMITE: 'tempo extra fora do limite permitido',
++  ACAO_DESCONHECIDA: 'comando não reconhecido',
++};
++
++export function descreverStatusDispositivo(status?: StatusDispositivo | null): DescricaoStatus {
++  if (!status) {
++    return { titulo: 'Sem informação do semáforo', confirmado: false };
++  }
++  return DESCRICOES[status] ?? { titulo: status, confirmado: false };
++}
++
++export function traduzirDetalheDispositivo(detalhe?: string | null): string | null {
++  if (!detalhe) {
++    return null;
++  }
++  return MOTIVOS[detalhe] ?? detalhe;
++}
+diff --git a/src/telas/TelaAssistente.tsx b/src/telas/TelaAssistente.tsx
+new file mode 100644
+index 0000000..2b57731
+--- /dev/null
++++ b/src/telas/TelaAssistente.tsx
+@@ -0,0 +1,785 @@
++import { Ionicons } from '@expo/vector-icons';
++import React, { useEffect, useRef, useState } from 'react';
++import {
++  ActivityIndicator,
++  Animated,
++  KeyboardAvoidingView,
++  Platform,
++  ScrollView,
++  StyleSheet,
++  Text,
++  TextInput,
++  TouchableOpacity,
++  View,
++} from 'react-native';
++import { SafeAreaView } from 'react-native-safe-area-context';
++import { CabecalhoApp } from '../componentes/CabecalhoApp';
++import { bordas, cores, espacamentos, fontes } from '../estilos/tema';
++import { extrairMensagemErro } from '../servicos/clienteApi';
++import { lerEmVoz, pararLeitura } from '../servicos/leituraEmVoz';
++import { perguntarAssistenteApi } from '../servicos/servicoAssistente';
++import { FonteResposta, MensagemHistoricoAssistente } from '../tipos/modelos';
++
++type NomeIcone = React.ComponentProps<typeof Ionicons>['name'];
++
++interface MensagemConversa {
++  id: number;
++  papel: 'usuario' | 'assistente';
++  texto: string;
++  fontes?: FonteResposta[];
++  semDados?: boolean;
++  erro?: boolean;
++  perguntaOriginal?: string;
++  sugestoes?: string[];
++  simplificada?: boolean;
++}
++
++const SUGESTOES: { texto: string; icone: NomeIcone }[] = [
++  { texto: 'Como peço mais tempo para atravessar?', icone: 'walk-outline' },
++  { texto: 'Quanto tempo a mais eu ganho na chuva?', icone: 'rainy-outline' },
++  { texto: 'Que cuidados devo ter ao atravessar à noite?', icone: 'moon-outline' },
++  { texto: 'Quais são os direitos do pedestre na faixa?', icone: 'shield-checkmark-outline' },
++];
++
++// Mensagens anteriores enviadas junto com cada pergunta (3 perguntas e 3 respostas).
++const LIMITE_HISTORICO = 6;
++const TAMANHO_MAXIMO_PERGUNTA = 500;
++
++function nomeDocumento(arquivo: string): string {
++  const nome = arquivo.replace(/^\d+-/, '').replace(/\.md$/, '').replace(/-/g, ' ');
++  return nome.charAt(0).toUpperCase() + nome.slice(1);
++}
++
++function montarHistorico(mensagens: MensagemConversa[]): MensagemHistoricoAssistente[] {
++  return mensagens
++    .filter((mensagem) => !mensagem.erro)
++    .slice(-LIMITE_HISTORICO)
++    .map((mensagem) => ({ papel: mensagem.papel, texto: mensagem.texto.slice(0, 2000) }));
++}
++
++const IndicadorDigitando: React.FC = () => {
++  const pontos = useRef([0, 1, 2].map(() => new Animated.Value(0.3))).current;
++
++  useEffect(() => {
++    const animacoes = pontos.map((ponto, indice) =>
++      Animated.loop(
++        Animated.sequence([
++          Animated.delay(indice * 160),
++          Animated.timing(ponto, { toValue: 1, duration: 320, useNativeDriver: true }),
++          Animated.timing(ponto, { toValue: 0.3, duration: 320, useNativeDriver: true }),
++          Animated.delay((2 - indice) * 160),
++        ]),
++      ),
++    );
++    animacoes.forEach((animacao) => animacao.start());
++    return () => animacoes.forEach((animacao) => animacao.stop());
++  }, [pontos]);
++
++  return (
++    <View style={estilos.linhaAssistente} accessibilityLabel="O assistente está escrevendo a resposta">
++      <View style={estilos.avatar}>
++        <Ionicons name="sparkles" size={16} color={cores.textoClaro} />
++      </View>
++      <View style={[estilos.balao, estilos.balaoAssistente, estilos.balaoDigitando]}>
++        {pontos.map((ponto, indice) => (
++          <Animated.View key={indice} style={[estilos.ponto, { opacity: ponto }]} />
++        ))}
++        <Text style={estilos.textoDigitando}>Pensando...</Text>
++      </View>
++    </View>
++  );
++};
++
++const ListaFontes: React.FC<{ fontes: FonteResposta[] }> = ({ fontes: lista }) => {
++  const [aberta, setAberta] = useState<boolean>(false);
++
++  return (
++    <View style={estilos.blocoFontes}>
++      <TouchableOpacity
++        style={estilos.botaoFontes}
++        onPress={() => setAberta((valor) => !valor)}
++        accessibilityRole="button"
++        accessibilityState={{ expanded: aberta }}
++        accessibilityLabel={`${aberta ? 'Ocultar' : 'Mostrar'} ${lista.length} fontes consultadas`}
++      >
++        <Ionicons name="document-text-outline" size={15} color={cores.primaria} />
++        <Text style={estilos.textoBotaoFontes}>
++          {lista.length} {lista.length === 1 ? 'fonte consultada' : 'fontes consultadas'}
++        </Text>
++        <Ionicons name={aberta ? 'chevron-up' : 'chevron-down'} size={15} color={cores.primaria} />
++      </TouchableOpacity>
++
++      {aberta
++        ? lista.map((fonte, indice) => (
++            <View key={`${fonte.documento}-${fonte.secao}`} style={estilos.itemFonte}>
++              <View style={estilos.numeroFonte}>
++                <Text style={estilos.textoNumeroFonte}>{indice + 1}</Text>
++              </View>
++              <View style={{ flex: 1 }}>
++                <Text style={estilos.documentoFonte}>{nomeDocumento(fonte.documento)}</Text>
++                <Text style={estilos.secaoFonte}>{fonte.secao}</Text>
++              </View>
++            </View>
++          ))
++        : null}
++    </View>
++  );
++};
++
++export const TelaAssistente: React.FC = () => {
++  const [mensagens, setMensagens] = useState<MensagemConversa[]>([]);
++  const [texto, setTexto] = useState<string>('');
++  const [carregando, setCarregando] = useState<boolean>(false);
++  const [lendoId, setLendoId] = useState<number | null>(null);
++  const proximoId = useRef<number>(1);
++  const rolagem = useRef<React.ComponentRef<typeof ScrollView>>(null);
++
++  // Interrompe a leitura em voz alta ao sair da tela.
++  useEffect(() => () => pararLeitura(), []);
++
++  function novaMensagem(dados: Omit<MensagemConversa, 'id'>): MensagemConversa {
++    const mensagem = { ...dados, id: proximoId.current };
++    proximoId.current += 1;
++    return mensagem;
++  }
++
++  async function enviar(conteudo: string, anteriores: MensagemConversa[] = mensagens) {
++    const pergunta = conteudo.trim();
++    if (pergunta.length < 3 || carregando) {
++      return;
++    }
++    const historico = montarHistorico(anteriores);
++    setMensagens([...anteriores, novaMensagem({ papel: 'usuario', texto: pergunta })]);
++    setTexto('');
++    setCarregando(true);
++
++    try {
++      const resposta = await perguntarAssistenteApi(pergunta, historico);
++      setMensagens((atuais) => [
++        ...atuais,
++        novaMensagem({
++          papel: 'assistente',
++          texto: resposta.resposta,
++          fontes: resposta.contextoSuficiente ? resposta.fontes : [],
++          semDados: !resposta.contextoSuficiente,
++          sugestoes: resposta.sugestoes ?? [],
++          perguntaOriginal: pergunta,
++        }),
++      ]);
++    } catch (erro) {
++      setMensagens((atuais) => [
++        ...atuais,
++        novaMensagem({
++          papel: 'assistente',
++          texto: extrairMensagemErro(erro),
++          erro: true,
++          perguntaOriginal: pergunta,
++        }),
++      ]);
++    } finally {
++      setCarregando(false);
++    }
++  }
++
++  function tentarNovamente(mensagemErro: MensagemConversa) {
++    // Remove a pergunta que falhou e a mensagem de erro antes de reenviar.
++    const indice = mensagens.findIndex((mensagem) => mensagem.id === mensagemErro.id);
++    const anteriores = mensagens.slice(0, Math.max(indice - 1, 0));
++    enviar(mensagemErro.perguntaOriginal ?? '', anteriores);
++  }
++
++  async function explicarMaisSimples(mensagem: MensagemConversa) {
++    if (carregando || !mensagem.perguntaOriginal) return;
++    // Mesma pergunta e mesmo historico de antes da resposta, pedindo linguagem mais simples.
++    const indice = mensagens.findIndex((m) => m.id === mensagem.id);
++    const historico = montarHistorico(mensagens.slice(0, Math.max(indice - 1, 0)));
++    setCarregando(true);
++    try {
++      const resposta = await perguntarAssistenteApi(mensagem.perguntaOriginal, historico, true);
++      setMensagens((atuais) => [
++        ...atuais,
++        novaMensagem({
++          papel: 'assistente',
++          texto: resposta.resposta,
++          fontes: resposta.contextoSuficiente ? resposta.fontes : [],
++          semDados: !resposta.contextoSuficiente,
++          sugestoes: resposta.sugestoes ?? [],
++          perguntaOriginal: mensagem.perguntaOriginal,
++          simplificada: true,
++        }),
++      ]);
++    } catch (erro) {
++      setMensagens((atuais) => [
++        ...atuais,
++        novaMensagem({ papel: 'assistente', texto: extrairMensagemErro(erro), erro: true }),
++      ]);
++    } finally {
++      setCarregando(false);
++    }
++  }
++
++  function alternarLeitura(mensagem: MensagemConversa) {
++    if (lendoId === mensagem.id) {
++      pararLeitura();
++      setLendoId(null);
++      return;
++    }
++    setLendoId(mensagem.id);
++    lerEmVoz(mensagem.texto, () => setLendoId((atual) => (atual === mensagem.id ? null : atual)));
++  }
++
++  function novaConversa() {
++    pararLeitura();
++    setLendoId(null);
++    setMensagens([]);
++    setTexto('');
++  }
++
++  const podeEnviar = texto.trim().length >= 3 && !carregando;
++  const ultimaMensagem = mensagens[mensagens.length - 1];
++  const ultimaResposta = ultimaMensagem?.papel === 'assistente' ? ultimaMensagem : undefined;
++  const conversaVazia = mensagens.length === 0;
++
++  return (
++    <SafeAreaView style={estilos.tela} edges={['top']}>
++      <KeyboardAvoidingView
++        style={{ flex: 1 }}
++        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
++      >
++        <CabecalhoApp titulo="Dúvidas" subtitulo="Converse com o assistente de IA" />
++
++        {!conversaVazia ? (
++          <View style={estilos.barraConversa}>
++            <View style={estilos.seloIa}>
++              <Ionicons name="sparkles" size={13} color={cores.primaria} />
++              <Text style={estilos.textoSeloIa}>Respostas baseadas na documentação</Text>
++            </View>
++            <TouchableOpacity
++              style={estilos.botaoNovaConversa}
++              onPress={novaConversa}
++              disabled={carregando}
++              accessibilityRole="button"
++              accessibilityLabel="Começar uma nova conversa"
++            >
++              <Ionicons name="add" size={16} color={cores.primaria} />
++              <Text style={estilos.textoNovaConversa}>Nova conversa</Text>
++            </TouchableOpacity>
++          </View>
++        ) : null}
++
++        <ScrollView
++          ref={rolagem}
++          style={{ flex: 1 }}
++          contentContainerStyle={estilos.conteudo}
++          keyboardShouldPersistTaps="handled"
++          onContentSizeChange={() => rolagem.current?.scrollToEnd({ animated: true })}
++        >
++          {conversaVazia ? (
++            <View style={estilos.boasVindas}>
++              <View style={estilos.iconeBoasVindas}>
++                <Ionicons name="chatbubbles" size={34} color={cores.textoClaro} />
++              </View>
++              <Text style={estilos.tituloBoasVindas}>Olá! Como posso ajudar?</Text>
++              <Text style={estilos.textoBoasVindas}>
++                Pergunte sobre o aplicativo, o tempo extra no semáforo ou como atravessar com mais
++                segurança. Você pode fazer perguntas seguidas, como em uma conversa.
++              </Text>
++
++              <Text style={estilos.rotuloSugestoes}>Experimente perguntar</Text>
++              {SUGESTOES.map((sugestao) => (
++                <TouchableOpacity
++                  key={sugestao.texto}
++                  style={estilos.cartaoSugestao}
++                  onPress={() => enviar(sugestao.texto)}
++                  accessibilityRole="button"
++                >
++                  <View style={estilos.iconeSugestao}>
++                    <Ionicons name={sugestao.icone} size={20} color={cores.primaria} />
++                  </View>
++                  <Text style={estilos.textoSugestao}>{sugestao.texto}</Text>
++                  <Ionicons name="arrow-forward" size={18} color={cores.textoSecundario} />
++                </TouchableOpacity>
++              ))}
++            </View>
++          ) : null}
++
++          {mensagens.map((mensagem) =>
++            mensagem.papel === 'usuario' ? (
++              <View key={mensagem.id} style={estilos.linhaUsuario}>
++                <View style={[estilos.balao, estilos.balaoUsuario]}>
++                  <Text style={estilos.textoUsuario}>{mensagem.texto}</Text>
++                </View>
++              </View>
++            ) : (
++              <View key={mensagem.id} style={estilos.linhaAssistente}>
++                <View style={[estilos.avatar, mensagem.erro ? estilos.avatarErro : null]}>
++                  <Ionicons
++                    name={mensagem.erro ? 'alert' : 'sparkles'}
++                    size={16}
++                    color={cores.textoClaro}
++                  />
++                </View>
++                <View
++                  style={[
++                    estilos.balao,
++                    estilos.balaoAssistente,
++                    mensagem.semDados ? estilos.balaoSemDados : null,
++                    mensagem.erro ? estilos.balaoErro : null,
++                  ]}
++                  accessibilityLiveRegion="polite"
++                >
++                  {mensagem.simplificada ? (
++                    <View style={estilos.linhaAviso}>
++                      <Ionicons name="happy-outline" size={16} color={cores.secundaria} />
++                      <Text style={estilos.textoAviso}>Explicação mais simples</Text>
++                    </View>
++                  ) : null}
++                  {mensagem.semDados ? (
++                    <View style={estilos.linhaAviso}>
++                      <Ionicons name="information-circle" size={16} color={cores.destaque} />
++                      <Text style={estilos.textoAviso}>Fora do que eu sei responder</Text>
++                    </View>
++                  ) : null}
++                  <Text style={estilos.textoAssistente}>{mensagem.texto}</Text>
++                  {!mensagem.erro ? (
++                    <View style={estilos.linhaAcoes}>
++                      <TouchableOpacity
++                        style={estilos.botaoAcao}
++                        onPress={() => alternarLeitura(mensagem)}
++                        accessibilityRole="button"
++                        accessibilityLabel={lendoId === mensagem.id ? 'Parar a leitura' : 'Ouvir a resposta'}
++                      >
++                        <Ionicons
++                          name={lendoId === mensagem.id ? 'stop-circle-outline' : 'volume-high-outline'}
++                          size={16}
++                          color={cores.primaria}
++                        />
++                        <Text style={estilos.textoAcao}>
++                          {lendoId === mensagem.id ? 'Parar' : 'Ouvir'}
++                        </Text>
++                      </TouchableOpacity>
++                      {!mensagem.semDados && !mensagem.simplificada ? (
++                        <TouchableOpacity
++                          style={estilos.botaoAcao}
++                          onPress={() => explicarMaisSimples(mensagem)}
++                          disabled={carregando}
++                          accessibilityRole="button"
++                          accessibilityLabel="Explicar de forma mais simples"
++                        >
++                          <Ionicons name="sparkles-outline" size={16} color={cores.primaria} />
++                          <Text style={estilos.textoAcao}>Mais simples</Text>
++                        </TouchableOpacity>
++                      ) : null}
++                    </View>
++                  ) : null}
++                  {mensagem.fontes && mensagem.fontes.length > 0 ? (
++                    <ListaFontes fontes={mensagem.fontes} />
++                  ) : null}
++                  {mensagem.erro ? (
++                    <TouchableOpacity
++                      style={estilos.botaoTentar}
++                      onPress={() => tentarNovamente(mensagem)}
++                      disabled={carregando}
++                      accessibilityRole="button"
++                    >
++                      <Ionicons name="refresh" size={15} color={cores.perigo} />
++                      <Text style={estilos.textoTentar}>Tentar novamente</Text>
++                    </TouchableOpacity>
++                  ) : null}
++                </View>
++              </View>
++            ),
++          )}
++
++          {!carregando && ultimaResposta?.sugestoes && ultimaResposta.sugestoes.length > 0 ? (
++            <View style={estilos.blocoSugestoesSeguintes}>
++              <Text style={estilos.rotuloSugestoesSeguintes}>Você também pode perguntar</Text>
++              {ultimaResposta.sugestoes.map((sugestao) => (
++                <TouchableOpacity
++                  key={sugestao}
++                  style={estilos.chipSugestaoSeguinte}
++                  onPress={() => enviar(sugestao)}
++                  accessibilityRole="button"
++                >
++                  <Ionicons name="chatbubble-ellipses-outline" size={15} color={cores.primaria} />
++                  <Text style={estilos.textoChipSugestaoSeguinte}>{sugestao}</Text>
++                </TouchableOpacity>
++              ))}
++            </View>
++          ) : null}
++
++          {carregando ? <IndicadorDigitando /> : null}
++        </ScrollView>
++
++        <View style={estilos.barraEntrada}>
++          <TextInput
++            style={estilos.campo}
++            value={texto}
++            onChangeText={setTexto}
++            placeholder={conversaVazia ? 'Escreva sua dúvida...' : 'Faça outra pergunta...'}
++            placeholderTextColor={cores.textoSecundario}
++            multiline
++            maxLength={TAMANHO_MAXIMO_PERGUNTA}
++            editable={!carregando}
++            accessibilityLabel="Campo para escrever sua pergunta"
++          />
++          <TouchableOpacity
++            style={[estilos.botaoEnviar, !podeEnviar ? estilos.botaoEnviarDesabilitado : null]}
++            onPress={() => enviar(texto)}
++            disabled={!podeEnviar}
++            accessibilityRole="button"
++            accessibilityLabel="Enviar pergunta"
++          >
++            {carregando ? (
++              <ActivityIndicator size="small" color={cores.textoClaro} />
++            ) : (
++              <Ionicons name="arrow-up" size={22} color={cores.textoClaro} />
++            )}
++          </TouchableOpacity>
++        </View>
++      </KeyboardAvoidingView>
++    </SafeAreaView>
++  );
++};
++
++const sombraSuave = {
++  shadowColor: cores.sombra,
++  shadowOpacity: 0.08,
++  shadowRadius: 8,
++  shadowOffset: { width: 0, height: 2 },
++  elevation: 2,
++};
++
++const estilos = StyleSheet.create({
++  tela: {
++    flex: 1,
++    backgroundColor: cores.fundo,
++  },
++  barraConversa: {
++    flexDirection: 'row',
++    alignItems: 'center',
++    justifyContent: 'space-between',
++    paddingHorizontal: espacamentos.md,
++    marginTop: -espacamentos.xs,
++    marginBottom: espacamentos.xs,
++    gap: 8,
++  },
++  seloIa: {
++    flexDirection: 'row',
++    alignItems: 'center',
++    gap: 5,
++    flexShrink: 1,
++  },
++  textoSeloIa: {
++    fontSize: 12,
++    color: cores.textoSecundario,
++    fontWeight: '600',
++    flexShrink: 1,
++  },
++  botaoNovaConversa: {
++    flexDirection: 'row',
++    alignItems: 'center',
++    gap: 4,
++    backgroundColor: cores.primariaClara,
++    borderRadius: bordas.raioCircular,
++    paddingHorizontal: 12,
++    paddingVertical: 7,
++  },
++  textoNovaConversa: {
++    color: cores.primaria,
++    fontWeight: '700',
++    fontSize: fontes.tamanhos.pequeno,
++  },
++  conteudo: {
++    paddingHorizontal: espacamentos.md,
++    paddingBottom: espacamentos.md,
++    gap: espacamentos.sm,
++  },
++  boasVindas: {
++    alignItems: 'center',
++    paddingTop: espacamentos.sm,
++  },
++  iconeBoasVindas: {
++    width: 68,
++    height: 68,
++    borderRadius: 34,
++    backgroundColor: cores.primaria,
++    alignItems: 'center',
++    justifyContent: 'center',
++    marginBottom: espacamentos.sm,
++    ...sombraSuave,
++  },
++  tituloBoasVindas: {
++    fontSize: fontes.tamanhos.titulo,
++    fontWeight: '800',
++    color: cores.textoPrincipal,
++    textAlign: 'center',
++  },
++  textoBoasVindas: {
++    fontSize: fontes.tamanhos.corpo,
++    lineHeight: 23,
++    color: cores.textoSecundario,
++    textAlign: 'center',
++    marginTop: espacamentos.xs,
++    marginBottom: espacamentos.lg,
++    paddingHorizontal: espacamentos.xs,
++  },
++  rotuloSugestoes: {
++    alignSelf: 'flex-start',
++    fontSize: fontes.tamanhos.pequeno,
++    fontWeight: '800',
++    color: cores.textoSecundario,
++    textTransform: 'uppercase',
++    letterSpacing: 0.6,
++    marginBottom: espacamentos.sm,
++  },
++  cartaoSugestao: {
++    flexDirection: 'row',
++    alignItems: 'center',
++    alignSelf: 'stretch',
++    backgroundColor: cores.superficie,
++    borderRadius: bordas.raioMedio,
++    paddingVertical: 14,
++    paddingHorizontal: espacamentos.md,
++    marginBottom: espacamentos.sm,
++    gap: 12,
++    ...sombraSuave,
++  },
++  iconeSugestao: {
++    width: 38,
++    height: 38,
++    borderRadius: 19,
++    backgroundColor: cores.primariaClara,
++    alignItems: 'center',
++    justifyContent: 'center',
++  },
++  textoSugestao: {
++    flex: 1,
++    fontSize: fontes.tamanhos.corpo,
++    fontWeight: '600',
++    color: cores.textoPrincipal,
++  },
++  linhaUsuario: {
++    flexDirection: 'row',
++    justifyContent: 'flex-end',
++    paddingLeft: 48,
++  },
++  linhaAssistente: {
++    flexDirection: 'row',
++    alignItems: 'flex-end',
++    paddingRight: 24,
++    gap: 8,
++  },
++  avatar: {
++    width: 32,
++    height: 32,
++    borderRadius: 16,
++    backgroundColor: cores.primaria,
++    alignItems: 'center',
++    justifyContent: 'center',
++  },
++  avatarErro: {
++    backgroundColor: cores.perigo,
++  },
++  balao: {
++    borderRadius: 20,
++    paddingHorizontal: espacamentos.md,
++    paddingVertical: 12,
++    maxWidth: '100%',
++  },
++  balaoUsuario: {
++    backgroundColor: cores.primaria,
++    borderBottomRightRadius: 6,
++  },
++  balaoAssistente: {
++    flexShrink: 1,
++    backgroundColor: cores.superficie,
++    borderBottomLeftRadius: 6,
++    ...sombraSuave,
++  },
++  balaoSemDados: {
++    backgroundColor: cores.destaqueClaro,
++  },
++  balaoErro: {
++    backgroundColor: cores.perigoClaro,
++  },
++  balaoDigitando: {
++    flexDirection: 'row',
++    alignItems: 'center',
++    gap: 5,
++  },
++  ponto: {
++    width: 8,
++    height: 8,
++    borderRadius: 4,
++    backgroundColor: cores.primaria,
++  },
++  textoDigitando: {
++    marginLeft: 6,
++    fontSize: fontes.tamanhos.pequeno,
++    color: cores.textoSecundario,
++  },
++  textoUsuario: {
++    fontSize: 17,
++    lineHeight: 24,
++    color: cores.textoClaro,
++  },
++  textoAssistente: {
++    fontSize: 17,
++    lineHeight: 25,
++    color: cores.textoPrincipal,
++  },
++  linhaAviso: {
++    flexDirection: 'row',
++    alignItems: 'center',
++    gap: 5,
++    marginBottom: 4,
++  },
++  textoAviso: {
++    fontSize: fontes.tamanhos.pequeno,
++    fontWeight: '700',
++    color: cores.textoSecundario,
++  },
++  blocoFontes: {
++    marginTop: espacamentos.sm,
++    paddingTop: espacamentos.sm,
++    borderTopWidth: 1,
++    borderTopColor: cores.borda,
++  },
++  botaoFontes: {
++    flexDirection: 'row',
++    alignItems: 'center',
++    alignSelf: 'flex-start',
++    gap: 5,
++    paddingVertical: 2,
++  },
++  textoBotaoFontes: {
++    color: cores.primaria,
++    fontWeight: '700',
++    fontSize: fontes.tamanhos.pequeno,
++  },
++  itemFonte: {
++    flexDirection: 'row',
++    alignItems: 'center',
++    gap: 10,
++    marginTop: espacamentos.sm,
++  },
++  numeroFonte: {
++    width: 22,
++    height: 22,
++    borderRadius: 11,
++    backgroundColor: cores.primariaClara,
++    alignItems: 'center',
++    justifyContent: 'center',
++  },
++  textoNumeroFonte: {
++    fontSize: 12,
++    fontWeight: '800',
++    color: cores.primaria,
++  },
++  documentoFonte: {
++    fontSize: fontes.tamanhos.pequeno,
++    fontWeight: '700',
++    color: cores.textoPrincipal,
++  },
++  secaoFonte: {
++    fontSize: 12,
++    color: cores.textoSecundario,
++  },
++  linhaAcoes: {
++    flexDirection: 'row',
++    flexWrap: 'wrap',
++    gap: 8,
++    marginTop: espacamentos.sm,
++  },
++  botaoAcao: {
++    flexDirection: 'row',
++    alignItems: 'center',
++    gap: 4,
++    backgroundColor: cores.primariaClara,
++    borderRadius: bordas.raioCircular,
++    paddingHorizontal: 12,
++    paddingVertical: 7,
++  },
++  textoAcao: {
++    color: cores.primaria,
++    fontWeight: '700',
++    fontSize: fontes.tamanhos.pequeno,
++  },
++  blocoSugestoesSeguintes: {
++    marginLeft: 40,
++    gap: 8,
++  },
++  rotuloSugestoesSeguintes: {
++    fontSize: 12,
++    fontWeight: '800',
++    color: cores.textoSecundario,
++    textTransform: 'uppercase',
++    letterSpacing: 0.5,
++  },
++  chipSugestaoSeguinte: {
++    flexDirection: 'row',
++    alignItems: 'center',
++    alignSelf: 'flex-start',
++    gap: 6,
++    backgroundColor: cores.superficie,
++    borderColor: cores.primaria,
++    borderWidth: 1,
++    borderRadius: bordas.raioCircular,
++    paddingHorizontal: 14,
++    paddingVertical: 9,
++  },
++  textoChipSugestaoSeguinte: {
++    color: cores.primariaEscura,
++    fontWeight: '600',
++    fontSize: fontes.tamanhos.pequeno,
++    flexShrink: 1,
++  },
++  botaoTentar: {
++    flexDirection: 'row',
++    alignItems: 'center',
++    alignSelf: 'flex-start',
++    gap: 5,
++    marginTop: espacamentos.sm,
++  },
++  textoTentar: {
++    color: cores.perigo,
++    fontWeight: '700',
++    fontSize: fontes.tamanhos.pequeno,
++  },
++  barraEntrada: {
++    flexDirection: 'row',
++    alignItems: 'flex-end',
++    gap: espacamentos.sm,
++    paddingHorizontal: espacamentos.md,
++    paddingVertical: espacamentos.sm,
++    backgroundColor: cores.superficie,
++    borderTopWidth: 1,
++    borderTopColor: cores.borda,
++  },
++  campo: {
++    flex: 1,
++    minHeight: 48,
++    maxHeight: 120,
++    backgroundColor: cores.fundo,
++    borderRadius: 24,
++    borderWidth: 1,
++    borderColor: cores.borda,
++    paddingHorizontal: espacamentos.md,
++    paddingTop: 13,
++    paddingBottom: 13,
++    fontSize: fontes.tamanhos.corpo,
++    color: cores.textoPrincipal,
++  },
++  botaoEnviar: {
++    width: 48,
++    height: 48,
++    borderRadius: 24,
++    backgroundColor: cores.primaria,
++    alignItems: 'center',
++    justifyContent: 'center',
++  },
++  botaoEnviarDesabilitado: {
++    backgroundColor: cores.desabilitado,
++  },
++});
+diff --git a/src/telas/TelaHistorico.tsx b/src/telas/TelaHistorico.tsx
+index 3c30161..6a9e574 100644
+--- a/src/telas/TelaHistorico.tsx
++++ b/src/telas/TelaHistorico.tsx
+@@ -12,11 +12,13 @@ import {
+ } from 'react-native';
+ import { SafeAreaView } from 'react-native-safe-area-context';
+ import { CabecalhoApp } from '../componentes/CabecalhoApp';
++import { CartaoResumoIa } from '../componentes/CartaoResumoIa';
+ import { MensagemFeedback } from '../componentes/MensagemFeedback';
+ import { usarAutenticacao } from '../contextos/ContextoAutenticacao';
+ import { estilosGlobais } from '../estilos/estilosGlobais';
+ import { bordas, cores, espacamentos, fontes } from '../estilos/tema';
+ import { extrairMensagemErro } from '../servicos/clienteApi';
++import { descreverStatusDispositivo } from '../servicos/statusDispositivo';
+ import {
+   listarSolicitacoesTravessiaApi,
+   removerSolicitacaoTravessiaApi,
+@@ -107,6 +109,7 @@ export const TelaHistorico: React.FC = () => {
+               />
+             }
+             contentContainerStyle={{ paddingBottom: espacamentos.xl }}
++            ListHeaderComponent={ehAdmin ? <CartaoResumoIa /> : undefined}
+             ListEmptyComponent={
+               <View style={estilosGlobais.cartao}>
+                 <Text style={estilosGlobais.tituloSecao}>Nenhuma travessia registrada</Text>
+@@ -152,6 +155,9 @@ export const TelaHistorico: React.FC = () => {
+                     {item.usuario?.pcd ? 'PCD' : '60+'})
+                   </Text>
+                   <Text style={estilos.infoLinha}>Clima no momento: {clima}</Text>
++                  <Text style={estilos.infoLinha}>
++                    Semáforo: {descreverStatusDispositivo(item.statusDispositivo).titulo}
++                  </Text>
+                   <Text style={estilos.dataTexto}>Data/Hora: {dataFormatada}</Text>
+ 
+                   {ehAdmin ? (
+diff --git a/src/telas/TelaTravessia.tsx b/src/telas/TelaTravessia.tsx
+index bc08ac9..2dd5bd5 100644
+--- a/src/telas/TelaTravessia.tsx
++++ b/src/telas/TelaTravessia.tsx
+@@ -1,3 +1,4 @@
++import { Ionicons } from '@expo/vector-icons';
+ import { useFocusEffect, useRoute } from '@react-navigation/native';
+ import * as Location from 'expo-location';
+ import React, { useCallback, useEffect, useState } from 'react';
+@@ -21,14 +22,26 @@ import {
+   listarSemaforosApi,
+   verificarProximidadeSemaforoApi,
+ } from '../servicos/servicoSemaforo';
++import { lerEmVoz, pararLeitura } from '../servicos/leituraEmVoz';
++import { obterOrientacaoApi } from '../servicos/servicoAssistente';
++import { consultarEstadoDispositivoApi } from '../servicos/servicoDispositivo';
+ import { criarSolicitacaoTravessiaApi } from '../servicos/servicoSolicitacao';
+ import {
++  descreverStatusDispositivo,
++  traduzirDetalheDispositivo,
++} from '../servicos/statusDispositivo';
++import {
++  OrientacaoTravessia,
+   RespostaProximidade,
+   Semaforo,
+   SolicitacaoTravessia,
+ } from '../tipos/modelos';
+ 
+ const TEMPO_BASE_SEMAFORO_SEGUNDOS = 15;
++// Depois que a travessia termina, o aviso de conclusao fica visivel por alguns segundos.
++const TEMPO_AVISO_CONCLUSAO_MS = 10000;
++// Pedido aceito para a proxima travessia: o aviso some depois de um ciclo completo do semaforo.
++const TEMPO_AVISO_PEDIDO_AGENDADO_MS = 60000;
+ 
+ export const TelaTravessia: React.FC = () => {
+   const rota = useRoute<any>();
+@@ -44,7 +57,134 @@ export const TelaTravessia: React.FC = () => {
+   const [carregandoProximidade, setCarregandoProximidade] = useState<boolean>(false);
+   const [enviandoSolicitacao, setEnviandoSolicitacao] = useState<boolean>(false);
+   const [mensagemErro, setMensagemErro] = useState<string | null>(null);
+-  const [mensagemSucesso, setMensagemSucesso] = useState<string | null>(null);
++
++  // Contagem regressiva da travessia confirmada pelo semaforo.
++  const [fimTravessiaEm, setFimTravessiaEm] = useState<number | null>(null);
++  const [duracaoTravessiaSegundos, setDuracaoTravessiaSegundos] = useState<number>(0);
++  const [agora, setAgora] = useState<number>(Date.now());
++  const [travessiaConcluida, setTravessiaConcluida] = useState<boolean>(false);
++  // Contagem informada pelo ESP32. O Wokwi pode simular mais devagar que o tempo real, entao o
++  // app segue o relogio do dispositivo; o relogio do celular so e usado se o estado nao chegar.
++  const [restanteDispositivo, setRestanteDispositivo] = useState<number | null>(null);
++  const [viuSinalAberto, setViuSinalAberto] = useState<boolean>(false);
++  // Quanto falta para o sinal de pedestres abrir, segundo o ESP32 (mesmo valor do LCD).
++  const [segundosAteAbrir, setSegundosAteAbrir] = useState<number | null>(null);
++  // Orientacao gerada pela IA com dicas da base para o clima e o periodo do dia.
++  const [orientacao, setOrientacao] = useState<OrientacaoTravessia | null>(null);
++  const [lendoOrientacao, setLendoOrientacao] = useState<boolean>(false);
++
++  const limparResultado = useCallback(() => {
++    setUltimaSolicitacao(null);
++    setFimTravessiaEm(null);
++    setTravessiaConcluida(false);
++    setRestanteDispositivo(null);
++    setViuSinalAberto(false);
++    setSegundosAteAbrir(null);
++    setOrientacao(null);
++    setLendoOrientacao(false);
++    pararLeitura();
++  }, []);
++
++  useEffect(() => () => pararLeitura(), []);
++
++  async function carregarOrientacao(clima: string, segundos: number) {
++    const hora = new Date().getHours();
++    const periodo = hora >= 18 || hora < 6 ? 'noite' : 'dia';
++    try {
++      setOrientacao(await obterOrientacaoApi(clima, segundos, periodo));
++    } catch {
++      // A orientacao e um complemento: sem ela a travessia segue normalmente.
++      setOrientacao(null);
++    }
++  }
++
++  function alternarLeituraOrientacao() {
++    if (!orientacao) return;
++    if (lendoOrientacao) {
++      pararLeitura();
++      setLendoOrientacao(false);
++      return;
++    }
++    setLendoOrientacao(true);
++    lerEmVoz(orientacao.mensagem, () => setLendoOrientacao(false));
++  }
++
++  useEffect(() => {
++    if (fimTravessiaEm === null || travessiaConcluida || restanteDispositivo !== null) return;
++    const intervalo = setInterval(() => {
++      const instante = Date.now();
++      setAgora(instante);
++      if (instante >= fimTravessiaEm) {
++        setTravessiaConcluida(true);
++      }
++    }, 250);
++    return () => clearInterval(intervalo);
++  }, [fimTravessiaEm, travessiaConcluida, restanteDispositivo]);
++
++  const acompanhandoSemaforo =
++    enviandoSolicitacao ||
++    (!travessiaConcluida &&
++      (fimTravessiaEm !== null || ultimaSolicitacao?.statusDispositivo === 'ACEITO'));
++
++  useEffect(() => {
++    if (!acompanhandoSemaforo) return;
++    let ativo = true;
++    const consultar = async () => {
++      try {
++        const estado = await consultarEstadoDispositivoApi();
++        if (!ativo) return;
++        if (!estado.online) {
++          setRestanteDispositivo(null);
++          setSegundosAteAbrir(null);
++          return;
++        }
++        setSegundosAteAbrir(estado.pedestreAberto ? null : estado.segundosAteAbrir);
++        // Enquanto o pedido aguarda a confirmacao, so a contagem ate abrir e usada.
++        if (enviandoSolicitacao) return;
++        if (estado.pedestreAberto) {
++          setViuSinalAberto(true);
++          setRestanteDispositivo(estado.travessiaRestanteSegundos);
++          // Pedido agendado: o sinal de pedestres abriu com o tempo extra.
++          setUltimaSolicitacao((atual) =>
++            atual && atual.statusDispositivo === 'ACEITO'
++              ? { ...atual, statusDispositivo: 'EXECUTADO' }
++              : atual
++          );
++          setFimTravessiaEm(
++            (atual) => atual ?? Date.now() + estado.travessiaRestanteSegundos * 1000
++          );
++          setDuracaoTravessiaSegundos((atual) =>
++            Math.max(atual, estado.travessiaRestanteSegundos, 1)
++          );
++        } else if (viuSinalAberto) {
++          // O ESP32 saiu da fase de pedestres: a travessia terminou.
++          setRestanteDispositivo(0);
++          setTravessiaConcluida(true);
++        }
++      } catch {
++        if (ativo) setRestanteDispositivo(null);
++      }
++    };
++    consultar();
++    // O ESP32 publica quando o numero do LCD muda; consultar a cada 0,5 s mantem o app em dia.
++    const intervalo = setInterval(consultar, 500);
++    return () => {
++      ativo = false;
++      clearInterval(intervalo);
++    };
++  }, [acompanhandoSemaforo, viuSinalAberto, enviandoSolicitacao]);
++
++  useEffect(() => {
++    if (!travessiaConcluida) return;
++    const temporizador = setTimeout(limparResultado, TEMPO_AVISO_CONCLUSAO_MS);
++    return () => clearTimeout(temporizador);
++  }, [travessiaConcluida, limparResultado]);
++
++  useEffect(() => {
++    if (ultimaSolicitacao?.statusDispositivo !== 'ACEITO') return;
++    const temporizador = setTimeout(limparResultado, TEMPO_AVISO_PEDIDO_AGENDADO_MS);
++    return () => clearTimeout(temporizador);
++  }, [ultimaSolicitacao, limparResultado]);
+ 
+   const carregarListaInicial = useCallback(async () => {
+     try {
+@@ -98,8 +238,7 @@ export const TelaTravessia: React.FC = () => {
+ 
+   function simularPosicaoPerto() {
+     if (!semaforoSelecionado) return;
+-    setUltimaSolicitacao(null);
+-    setMensagemSucesso(null);
++    limparResultado();
+     const latPerto = Number((semaforoSelecionado.latitude - 0.00004).toFixed(5));
+     setLatitudeUsuario(latPerto);
+     setLongitudeUsuario(semaforoSelecionado.longitude);
+@@ -107,8 +246,7 @@ export const TelaTravessia: React.FC = () => {
+ 
+   function simularPosicaoLonge() {
+     if (!semaforoSelecionado) return;
+-    setUltimaSolicitacao(null);
+-    setMensagemSucesso(null);
++    limparResultado();
+     const latLonge = Number((semaforoSelecionado.latitude - 0.0053).toFixed(5));
+     setLatitudeUsuario(latLonge);
+     setLongitudeUsuario(semaforoSelecionado.longitude);
+@@ -138,7 +276,7 @@ export const TelaTravessia: React.FC = () => {
+     try {
+       setEnviandoSolicitacao(true);
+       setMensagemErro(null);
+-      setMensagemSucesso(null);
++      limparResultado();
+ 
+       const resposta = await criarSolicitacaoTravessiaApi({
+         usuarioId: usuarioLogado.id,
+@@ -150,13 +288,29 @@ export const TelaTravessia: React.FC = () => {
+       setUltimaSolicitacao(resposta);
+       const segundosCalculados =
+         resposta.segundosExtras ?? resposta.tempoAdicionalCalculado ?? 5;
+-      const tempoTotalAberto = TEMPO_BASE_SEMAFORO_SEGUNDOS + segundosCalculados;
+-      const climaAtual =
+-        resposta.condicaoClimatica ?? resposta.condicaoClima ?? 'Consultado';
++      const status = descreverStatusDispositivo(resposta.statusDispositivo);
++      const detalhe = traduzirDetalheDispositivo(resposta.detalheDispositivo);
++      if (status.confirmado) {
++        carregarOrientacao(
++          resposta.condicaoClimatica ?? resposta.condicaoClima ?? 'Não informado',
++          segundosCalculados
++        );
++      }
+ 
+-      setMensagemSucesso(
+-        `Travessia autorizada! Clima: ${climaAtual} • Quando o semáforo abrir, você terá ${tempoTotalAberto} segundos no total (${TEMPO_BASE_SEMAFORO_SEGUNDOS}s padrão + ${segundosCalculados}s extras).`
+-      );
++      if (resposta.statusDispositivo === 'EXECUTADO') {
++        // O semaforo informa quanto falta para o sinal de pedestres fechar. Sem essa
++        // informacao, considera a travessia completa (15 s padrao + extra).
++        const restante =
++          resposta.travessiaRestanteSegundos ?? TEMPO_BASE_SEMAFORO_SEGUNDOS + segundosCalculados;
++        const instante = Date.now();
++        setAgora(instante);
++        setDuracaoTravessiaSegundos(Math.max(restante, 1));
++        setFimTravessiaEm(instante + restante * 1000);
++      } else if (!status.confirmado) {
++        setMensagemErro(
++          `${status.titulo}${detalhe ? `: ${detalhe}` : ''}. O tempo extra não foi aplicado; aguarde o sinal normal ou tente novamente.`
++        );
++      }
+     } catch (erro) {
+       setMensagemErro(extrairMensagemErro(erro));
+     } finally {
+@@ -164,17 +318,27 @@ export const TelaTravessia: React.FC = () => {
+     }
+   }
+ 
+-  const botaoLiberado = dadosProximidade?.botaoDesbloqueado === true;
+   const segundosExtrasUltimaSolicitacao =
+     ultimaSolicitacao?.segundosExtras ?? ultimaSolicitacao?.tempoAdicionalCalculado ?? 5;
+   const tempoTotalUltimaSolicitacao =
+     TEMPO_BASE_SEMAFORO_SEGUNDOS + segundosExtrasUltimaSolicitacao;
++  const climaUltimaSolicitacao =
++    ultimaSolicitacao?.condicaoClimatica ?? ultimaSolicitacao?.condicaoClima ?? 'Consultado';
++  const travessiaEmAndamento = fimTravessiaEm !== null && !travessiaConcluida;
++  const pedidoAgendado = ultimaSolicitacao?.statusDispositivo === 'ACEITO';
++  const segundosRestantes =
++    restanteDispositivo ??
++    (fimTravessiaEm !== null ? Math.max(0, Math.ceil((fimTravessiaEm - agora) / 1000)) : 0);
++  const progressoTravessia = Math.min(1, segundosRestantes / (duracaoTravessiaSegundos || 1));
++  // Enquanto a travessia confirmada nao termina, um novo pedido seria recusado pelo semaforo.
++  const dentroDoRaio = dadosProximidade?.botaoDesbloqueado === true;
++  const botaoLiberado = dentroDoRaio && !travessiaEmAndamento && !pedidoAgendado;
+ 
+   return (
+     <SafeAreaView style={estilosGlobais.areaSegura}>
+       <CabecalhoApp
+         titulo="Botão de Travessia"
+-        subtitulo="Validação GPS (<= 10m) + Clima + Spring AI"
++        subtitulo="Validação GPS (<= 10m) + Clima em tempo real"
+       />
+ 
+       <ScrollView
+@@ -196,7 +360,7 @@ export const TelaTravessia: React.FC = () => {
+                     ]}
+                     onPress={() => {
+                       setSemaforoSelecionado(sem);
+-                      setUltimaSolicitacao(null);
++                      limparResultado();
+                       setLatitudeUsuario(Number((sem.latitude - 0.00004).toFixed(5)));
+                       setLongitudeUsuario(sem.longitude);
+                     }}
+@@ -256,16 +420,18 @@ export const TelaTravessia: React.FC = () => {
+                   <Text
+                     style={[
+                       estilos.valorDistancia,
+-                      { color: botaoLiberado ? cores.secundaria : cores.perigo },
++                      { color: dentroDoRaio ? cores.secundaria : cores.perigo },
+                     ]}
+                   >
+                     {dadosProximidade?.distanciaMetros ?? '--'} metros
+                   </Text>
+                   <Text style={estilos.statusBotaoTexto}>
+                     Status:{' '}
+-                    {botaoLiberado
+-                      ? 'DENTRO DO RAIO (<= 10m) — BOTÃO DESBLOQUEADO'
+-                      : 'FORA DO RAIO (> 10m ou Inativo) — BOTÃO BLOQUEADO'}
++                    {!dentroDoRaio
++                      ? 'FORA DO RAIO (> 10m ou Inativo) — BOTÃO BLOQUEADO'
++                      : botaoLiberado
++                        ? 'DENTRO DO RAIO (<= 10m) — BOTÃO DESBLOQUEADO'
++                        : 'DENTRO DO RAIO (<= 10m) — AGUARDE O FIM DA TRAVESSIA'}
+                   </Text>
+                 </>
+               )}
+@@ -274,20 +440,82 @@ export const TelaTravessia: React.FC = () => {
+         ) : null}
+ 
+         <MensagemFeedback mensagem={mensagemErro} tipo="erro" />
+-        <MensagemFeedback mensagem={mensagemSucesso} tipo="sucesso" />
+ 
+-        {ultimaSolicitacao ? (
+-          <View style={[estilosGlobais.cartao, estilos.cartaoResultadoIa]}>
+-            <Text style={estilos.tituloResultadoIa}>TEMPO TOTAL COM SEMÁFORO ABERTO</Text>
+-            <Text style={estilos.cronometroValor}>{tempoTotalUltimaSolicitacao}s</Text>
++        {ultimaSolicitacao && travessiaEmAndamento ? (
++          <View
++            style={[estilosGlobais.cartao, estilos.cartaoResultadoIa]}
++            accessibilityLiveRegion="polite"
++          >
++            <View style={estilos.seloConfirmado}>
++              <Ionicons name="checkmark-circle" size={16} color={cores.secundaria} />
++              <Text style={estilos.tituloResultadoIa}>
++                SEMÁFORO CONFIRMOU +{segundosExtrasUltimaSolicitacao}s
++              </Text>
++            </View>
++            <Text style={estilos.chamadaTravessia}>ATRAVESSE AGORA</Text>
++            <Text style={estilos.cronometroValor}>{segundosRestantes}s</Text>
++            <View style={estilos.trilhaProgresso}>
++              <View
++                style={[estilos.barraProgresso, { width: `${progressoTravessia * 100}%` }]}
++              />
++            </View>
+             <Text style={estilos.detalheClima}>
+-              Quando o semáforo abrir, você terá {tempoTotalUltimaSolicitacao} segundos para
+-              atravessar ({TEMPO_BASE_SEMAFORO_SEGUNDOS}s padrão + {segundosExtrasUltimaSolicitacao}
+-              s extras).
++              Sinal de pedestres aberto: {tempoTotalUltimaSolicitacao}s no total (
++              {TEMPO_BASE_SEMAFORO_SEGUNDOS}s padrão + {segundosExtrasUltimaSolicitacao}s extras).
+             </Text>
+-            <Text style={estilos.detalheClima}>
+-              Clima em tempo real:{' '}
+-              {ultimaSolicitacao.condicaoClimatica ?? ultimaSolicitacao.condicaoClima}
++            <Text style={estilos.detalheSecundario}>Clima: {climaUltimaSolicitacao}</Text>
++          </View>
++        ) : null}
++
++        {orientacao && ultimaSolicitacao && !travessiaConcluida ? (
++          <View style={[estilosGlobais.cartao, estilos.cartaoOrientacao]} accessibilityLiveRegion="polite">
++            <View style={estilos.cabecalhoOrientacao}>
++              <Ionicons name="sparkles" size={16} color={cores.primaria} />
++              <Text style={estilos.tituloOrientacao}>
++                {orientacao.geradaPorIa ? 'Orientação para sua travessia' : 'Lembrete para sua travessia'}
++              </Text>
++            </View>
++            <Text style={estilos.textoOrientacao}>{orientacao.mensagem}</Text>
++            <TouchableOpacity
++              style={estilos.botaoOuvir}
++              onPress={alternarLeituraOrientacao}
++              accessibilityRole="button"
++              accessibilityLabel={lendoOrientacao ? 'Parar a leitura' : 'Ouvir a orientação'}
++            >
++              <Ionicons
++                name={lendoOrientacao ? 'stop-circle-outline' : 'volume-high-outline'}
++                size={18}
++                color={cores.textoClaro}
++              />
++              <Text style={estilos.textoBotaoOuvir}>{lendoOrientacao ? 'Parar' : 'Ouvir orientação'}</Text>
++            </TouchableOpacity>
++          </View>
++        ) : null}
++
++        {ultimaSolicitacao && travessiaConcluida ? (
++          <View
++            style={[estilosGlobais.cartao, estilos.cartaoConcluido]}
++            accessibilityLiveRegion="polite"
++          >
++            <Ionicons name="checkmark-done-circle" size={44} color={cores.primaria} />
++            <Text style={estilos.tituloConcluido}>Travessia concluída</Text>
++            <Text style={estilos.detalheSecundario}>
++              O sinal de pedestres fechou. Na próxima vez que precisar, é só pedir mais tempo de
++              novo.
++            </Text>
++          </View>
++        ) : null}
++
++        {ultimaSolicitacao && pedidoAgendado ? (
++          <View style={[estilosGlobais.cartao, estilos.cartaoConcluido]}>
++            <Ionicons name="time-outline" size={40} color={cores.primaria} />
++            <Text style={estilos.tituloConcluido}>Pedido aceito</Text>
++            {segundosAteAbrir !== null ? (
++              <Text style={estilos.contagemAbertura}>Abre em {segundosAteAbrir}s</Text>
++            ) : null}
++            <Text style={estilos.detalheSecundario}>
++              O semáforo vai aplicar +{segundosExtrasUltimaSolicitacao}s na próxima abertura para
++              pedestres. Aguarde o sinal verde.
+             </Text>
+           </View>
+         ) : null}
+@@ -304,18 +532,34 @@ export const TelaTravessia: React.FC = () => {
+           accessibilityLabel="Solicitar Tempo Extra de Travessia"
+         >
+           {enviandoSolicitacao ? (
+-            <ActivityIndicator size="large" color={cores.textoClaro} />
++            <>
++              <ActivityIndicator size="large" color={cores.textoClaro} />
++              {segundosAteAbrir !== null ? (
++                <Text style={estilos.tituloBotaoGigante}>
++                  SINAL DE PEDESTRES ABRE EM {segundosAteAbrir}s
++                </Text>
++              ) : null}
++              <Text style={estilos.subtituloBotaoGigante}>
++                {segundosAteAbrir !== null
++                  ? 'O tempo extra começa quando o sinal abrir. Aguarde na calçada.'
++                  : 'Aguardando confirmação do semáforo...'}
++              </Text>
++            </>
+           ) : (
+             <>
+               <Text style={estilos.tituloBotaoGigante}>
+-                {botaoLiberado
+-                  ? 'SOLICITAR TRAVESSIA AGORA'
+-                  : 'APROXIME-SE DO SEMÁFORO (MÁX. 10m)'}
++                {travessiaEmAndamento || pedidoAgendado
++                  ? 'TEMPO EXTRA JÁ CONCEDIDO'
++                  : botaoLiberado
++                    ? 'SOLICITAR TRAVESSIA AGORA'
++                    : 'APROXIME-SE DO SEMÁFORO (MÁX. 10m)'}
+               </Text>
+               <Text style={estilos.subtituloBotaoGigante}>
+-                {botaoLiberado
+-                  ? 'Toque para acionar Clima + Spring AI (+5s seco / +10s chuva)'
+-                  : 'Botão travado por segurança porque você está longe do semáforo'}
++                {travessiaEmAndamento || pedidoAgendado
++                  ? 'Aguarde o fim desta travessia para pedir de novo'
++                  : botaoLiberado
++                    ? 'Toque para pedir mais tempo (+5s seco / +10s chuva)'
++                    : 'Botão travado por segurança porque você está longe do semáforo'}
+               </Text>
+             </>
+           )}
+@@ -409,10 +653,98 @@ const estilos = StyleSheet.create({
+     color: cores.secundaria,
+   },
+   cronometroValor: {
+-    fontSize: fontes.tamanhos.cronometro,
++    fontSize: 64,
+     fontWeight: '900',
+     color: cores.secundaria,
+-    marginVertical: 4,
++    marginVertical: 2,
++    fontVariant: ['tabular-nums'],
++  },
++  seloConfirmado: {
++    flexDirection: 'row',
++    alignItems: 'center',
++    gap: 5,
++  },
++  chamadaTravessia: {
++    marginTop: espacamentos.sm,
++    fontSize: fontes.tamanhos.titulo,
++    fontWeight: '900',
++    color: cores.textoPrincipal,
++    letterSpacing: 0.5,
++  },
++  trilhaProgresso: {
++    alignSelf: 'stretch',
++    height: 10,
++    borderRadius: bordas.raioCircular,
++    backgroundColor: cores.superficie,
++    overflow: 'hidden',
++    marginBottom: espacamentos.sm,
++  },
++  barraProgresso: {
++    height: '100%',
++    borderRadius: bordas.raioCircular,
++    backgroundColor: cores.secundaria,
++  },
++  detalheSecundario: {
++    fontSize: fontes.tamanhos.pequeno,
++    color: cores.textoSecundario,
++    textAlign: 'center',
++    marginTop: 4,
++  },
++  cartaoConcluido: {
++    backgroundColor: cores.primariaClara,
++    borderColor: cores.primaria,
++    alignItems: 'center',
++  },
++  cartaoOrientacao: {
++    backgroundColor: cores.primariaClara,
++    borderColor: cores.primaria,
++  },
++  cabecalhoOrientacao: {
++    flexDirection: 'row',
++    alignItems: 'center',
++    gap: 6,
++    marginBottom: 6,
++  },
++  tituloOrientacao: {
++    fontSize: fontes.tamanhos.pequeno,
++    fontWeight: '800',
++    color: cores.primaria,
++    textTransform: 'uppercase',
++    letterSpacing: 0.5,
++  },
++  textoOrientacao: {
++    fontSize: 17,
++    lineHeight: 25,
++    color: cores.textoPrincipal,
++  },
++  botaoOuvir: {
++    flexDirection: 'row',
++    alignItems: 'center',
++    alignSelf: 'flex-start',
++    gap: 6,
++    marginTop: espacamentos.sm,
++    backgroundColor: cores.primaria,
++    borderRadius: bordas.raioCircular,
++    paddingHorizontal: 16,
++    paddingVertical: 10,
++  },
++  textoBotaoOuvir: {
++    color: cores.textoClaro,
++    fontWeight: '800',
++    fontSize: fontes.tamanhos.pequeno,
++  },
++  contagemAbertura: {
++    fontSize: 40,
++    fontWeight: '900',
++    color: cores.primaria,
++    marginTop: 4,
++    fontVariant: ['tabular-nums'],
++  },
++  tituloConcluido: {
++    fontSize: fontes.tamanhos.titulo,
++    fontWeight: '900',
++    color: cores.primariaEscura,
++    marginTop: 4,
+   },
+   detalheClima: {
+     fontSize: fontes.tamanhos.corpo,
+diff --git a/src/tipos/modelos.ts b/src/tipos/modelos.ts
+index 8c86098..5216b01 100644
+--- a/src/tipos/modelos.ts
++++ b/src/tipos/modelos.ts
+@@ -43,7 +43,7 @@ export interface RespostaProximidade {
+   semaforoId: number;
+   semaforoAtivo: boolean;
+   distanciaMetros: number;
+-  raioMaximoPermitidoMetros: number;
++  raioMaximoMetros: number;
+   botaoDesbloqueado: boolean;
+ }
+ 
+@@ -57,8 +57,24 @@ export interface SolicitacaoTravessia {
+   tempoAdicionalCalculado?: number;
+   condicaoClimatica?: string;
+   condicaoClima?: string;
++  statusDispositivo?: StatusDispositivo;
++  detalheDispositivo?: string;
++  // Segundos que faltavam para o sinal de pedestres fechar quando o semaforo confirmou.
++  travessiaRestanteSegundos?: number | null;
+ }
+ 
++export type StatusDispositivo =
++  | 'PENDENTE'
++  | 'ACEITO'
++  | 'EXECUTADO'
++  | 'REJEITADO'
++  | 'SEM_CONFIRMACAO'
++  | 'FALHA_MQTT'
++  | 'DISPOSITIVO_OFFLINE'
++  | 'DISPOSITIVO_REINICIADO'
++  | 'SEMAFORO_OCUPADO'
++  | 'FALHA_COMUNICACAO_IOT';
++
+ export interface DadosNovaSolicitacao {
+   usuarioId: number;
+   semaforoId: number;
+@@ -73,3 +89,56 @@ export interface RespostaPaginada<T> {
+   number: number;
+   size: number;
+ }
++
++export interface FonteResposta {
++  documento: string;
++  secao: string;
++  similaridade: number;
++}
++
++export interface RespostaAssistente {
++  resposta: string;
++  contextoSuficiente: boolean;
++  fontes: FonteResposta[];
++  modelo?: string | null;
++  maiorSimilaridade?: number | null;
++  perguntaConsiderada?: string | null;
++  sugestoes?: string[];
++}
++
++export interface OrientacaoTravessia {
++  mensagem: string;
++  geradaPorIa: boolean;
++  fontes: FonteResposta[];
++  modelo?: string | null;
++}
++
++export interface ResumoSolicitacoesIa {
++  resumo: string;
++  geradoPorIa: boolean;
++  indicadores: {
++    periodoDias: number;
++    totalSolicitacoes: number;
++    solicitacoesComChuva: number;
++    percentualComChuva: number;
++    confirmadasPeloSemaforo: number;
++    percentualConfirmadas: number;
++    semaforosMaisUsados: Record<string, number>;
++    solicitacoesPorHorario: Record<string, number>;
++    falhasPorTipo: Record<string, number>;
++  };
++}
++
++export interface EstadoDispositivo {
++  online: boolean;
++  fase: string | null;
++  semaforoAtual: number | null;
++  pedestreAberto: boolean;
++  travessiaRestanteSegundos: number;
++  segundosAteAbrir: number | null;
++}
++
++export interface MensagemHistoricoAssistente {
++  papel: 'usuario' | 'assistente';
++  texto: string;
++}

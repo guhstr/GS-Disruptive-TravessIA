@@ -1,0 +1,944 @@
+diff --git a/.env.example b/.env.example
+new file mode 100644
+index 0000000..43edcd4
+--- /dev/null
++++ b/.env.example
+@@ -0,0 +1,14 @@
++# Copie para .env e preencha. O arquivo .env nao deve ser versionado.
++ORACLE_URL=jdbc:oracle:thin:@oracle.fiap.com.br:1521:ORCL
++ORACLE_USER=
++ORACLE_PASSWORD=
++
++# Chave do Google Gemini (https://aistudio.google.com/apikey)
++# GEMINI_API_KEY=cole_sua_chave_aqui
++GEMINI_MODELOS=gemini-3.5-flash-lite,gemini-flash-lite-latest,gemini-3.1-flash-lite,gemini-3.5-flash,gemini-flash-latest,gemini-3.6-flash,gemini-3.7-flash,gemini-3-flash-preview,gemini-3.1-flash-lite-preview,gemini-3.8-flash,gemini-pro-latest,gemini-3.1-pro-preview
++
++# Opcional: sem chave, o clima padrao "Ceu limpo" e usado
++# WEATHER_API_KEY=
++
++TRAFFIC_SERVICE_URL=http://localhost:8081
++SERVICO_IOT_URL=http://localhost:8083
+diff --git a/docker-compose.yml b/docker-compose.yml
+index 5a0e3e8..070bc02 100644
+--- a/docker-compose.yml
++++ b/docker-compose.yml
+@@ -22,6 +22,7 @@ services:
+       - .env
+     environment:
+       - SERVER_PORT=8080
++      - TRAFFIC_SERVICE_URL=http://traffic:8081
+       - SPRING_CLOUD_DISCOVERY_CLIENT_SERVICE-URL_DEFAULTZONE=http://eureka:8761/eureka/
+     restart: unless-stopped
+ 
+diff --git a/gateway-service/src/main/java/br/com/travessia/gateway/config/SecurityConfig.java b/gateway-service/src/main/java/br/com/travessia/gateway/config/SecurityConfig.java
+index 881bf3d..123ec2c 100644
+--- a/gateway-service/src/main/java/br/com/travessia/gateway/config/SecurityConfig.java
++++ b/gateway-service/src/main/java/br/com/travessia/gateway/config/SecurityConfig.java
+@@ -43,6 +43,7 @@ public class SecurityConfig {
+                         .requestMatchers(HttpMethod.POST, "/api/semaforos/**").hasRole("ADMIN")
+                         .requestMatchers(HttpMethod.PUT, "/api/semaforos/**").hasRole("ADMIN")
+                         .requestMatchers(HttpMethod.DELETE, "/api/semaforos/**").hasRole("ADMIN")
++                        .requestMatchers(HttpMethod.GET, "/api/solicitacoes/resumo-ia").hasRole("ADMIN")
+                         .anyRequest().authenticated()
+                 )
+                 .addFilterBefore(jwtAuthenticationFilter(), UsernamePasswordAuthenticationFilter.class);
+diff --git a/gateway-service/src/main/java/br/com/travessia/gateway/controller/AssistenteController.java b/gateway-service/src/main/java/br/com/travessia/gateway/controller/AssistenteController.java
+new file mode 100644
+index 0000000..3bdcfae
+--- /dev/null
++++ b/gateway-service/src/main/java/br/com/travessia/gateway/controller/AssistenteController.java
+@@ -0,0 +1,85 @@
++package br.com.travessia.gateway.controller;
++
++import br.com.travessia.gateway.feign.AssistenteClient;
++import io.swagger.v3.oas.annotations.Operation;
++import io.swagger.v3.oas.annotations.tags.Tag;
++import jakarta.validation.Valid;
++import jakarta.validation.constraints.Max;
++import jakarta.validation.constraints.Min;
++import jakarta.validation.constraints.NotBlank;
++import jakarta.validation.constraints.NotNull;
++import jakarta.validation.constraints.Pattern;
++import jakarta.validation.constraints.Size;
++import org.springframework.http.ResponseEntity;
++import org.springframework.web.bind.annotation.PostMapping;
++import org.springframework.web.bind.annotation.RequestBody;
++import org.springframework.web.bind.annotation.RequestMapping;
++import org.springframework.web.bind.annotation.RestController;
++
++import java.util.HashMap;
++import java.util.List;
++import java.util.Map;
++
++@RestController
++@RequestMapping("/api/assistente")
++@Tag(name = "Assistente de dúvidas", description = "Conversa com IA generativa e RAG sobre o projeto e a segurança na travessia")
++public class AssistenteController {
++
++    private final AssistenteClient assistenteClient;
++
++    public AssistenteController(AssistenteClient assistenteClient) {
++        this.assistenteClient = assistenteClient;
++    }
++
++    @PostMapping("/perguntas")
++    @Operation(summary = "Fazer uma pergunta ao assistente",
++            description = "Recupera trechos da base de conhecimento e gera a resposta com IA, considerando as "
++                    + "mensagens anteriores da conversa; informa quando não há dados suficientes.")
++    public ResponseEntity<Map<String, Object>> perguntar(@Valid @RequestBody PerguntaDto dto) {
++        Map<String, Object> corpo = new HashMap<>();
++        corpo.put("pergunta", dto.pergunta());
++        corpo.put("historico", dto.historico() == null ? List.of() : dto.historico());
++        corpo.put("simplificar", Boolean.TRUE.equals(dto.simplificar()));
++        return ResponseEntity.ok(assistenteClient.perguntar(corpo));
++    }
++
++    @PostMapping("/orientacao")
++    @Operation(summary = "Orientação para a travessia",
++            description = "Depois que o semáforo confirma o tempo extra, gera com IA uma orientação curta com dicas "
++                    + "de segurança da base de conhecimento para o clima e o período do dia. Sem IA, devolve um texto padrão.")
++    public ResponseEntity<Map<String, Object>> orientar(@Valid @RequestBody OrientacaoDto dto) {
++        Map<String, Object> corpo = new HashMap<>();
++        corpo.put("condicaoClimatica", dto.condicaoClimatica());
++        corpo.put("segundosExtras", dto.segundosExtras());
++        corpo.put("periodo", dto.periodo() == null ? "dia" : dto.periodo());
++        return ResponseEntity.ok(assistenteClient.orientar(corpo));
++    }
++
++    public record PerguntaDto(
++            @NotBlank(message = "Informe a pergunta")
++            @Size(min = 3, max = 500, message = "A pergunta deve ter entre 3 e 500 caracteres")
++            String pergunta,
++            @Size(max = 10, message = "O histórico pode ter no máximo 10 mensagens")
++            List<@Valid MensagemDto> historico,
++            Boolean simplificar) {
++    }
++
++    public record OrientacaoDto(
++            @NotBlank(message = "Informe a condição climática")
++            @Size(max = 100)
++            String condicaoClimatica,
++            @NotNull @Min(1) @Max(15)
++            Integer segundosExtras,
++            @Pattern(regexp = "dia|noite", message = "O período deve ser dia ou noite")
++            String periodo) {
++    }
++
++    public record MensagemDto(
++            @NotBlank
++            @Pattern(regexp = "usuario|assistente", message = "O papel deve ser usuario ou assistente")
++            String papel,
++            @NotBlank
++            @Size(max = 2000, message = "Cada mensagem pode ter no máximo 2000 caracteres")
++            String texto) {
++    }
++}
+diff --git a/gateway-service/src/main/java/br/com/travessia/gateway/controller/DispositivoController.java b/gateway-service/src/main/java/br/com/travessia/gateway/controller/DispositivoController.java
+new file mode 100644
+index 0000000..ae56c1d
+--- /dev/null
++++ b/gateway-service/src/main/java/br/com/travessia/gateway/controller/DispositivoController.java
+@@ -0,0 +1,31 @@
++package br.com.travessia.gateway.controller;
++
++import br.com.travessia.gateway.feign.DispositivoClient;
++import io.swagger.v3.oas.annotations.Operation;
++import io.swagger.v3.oas.annotations.tags.Tag;
++import org.springframework.http.ResponseEntity;
++import org.springframework.web.bind.annotation.GetMapping;
++import org.springframework.web.bind.annotation.RequestMapping;
++import org.springframework.web.bind.annotation.RestController;
++
++import java.util.Map;
++
++@RestController
++@RequestMapping("/api/dispositivo")
++@Tag(name = "Semáforo simulado", description = "Estado do semáforo (ESP32/Wokwi) para acompanhar a travessia")
++public class DispositivoController {
++
++    private final DispositivoClient dispositivoClient;
++
++    public DispositivoController(DispositivoClient dispositivoClient) {
++        this.dispositivoClient = dispositivoClient;
++    }
++
++    @GetMapping("/estado")
++    @Operation(summary = "Consultar o estado da travessia",
++            description = "Fase atual do semáforo e segundos que faltam para o sinal de pedestres fechar, "
++                    + "medidos no relógio do ESP32.")
++    public ResponseEntity<Map<String, Object>> consultarEstado() {
++        return ResponseEntity.ok(dispositivoClient.consultarEstado());
++    }
++}
+diff --git a/gateway-service/src/main/java/br/com/travessia/gateway/controller/SolicitacaoTravessiaController.java b/gateway-service/src/main/java/br/com/travessia/gateway/controller/SolicitacaoTravessiaController.java
+index 4ace81a..95483fb 100644
+--- a/gateway-service/src/main/java/br/com/travessia/gateway/controller/SolicitacaoTravessiaController.java
++++ b/gateway-service/src/main/java/br/com/travessia/gateway/controller/SolicitacaoTravessiaController.java
+@@ -39,6 +39,15 @@ public class SolicitacaoTravessiaController {
+         return ResponseEntity.ok(trafficClient.listarSolicitacoes(page, size));
+     }
+ 
++    @GetMapping("/solicitacoes/resumo-ia")
++    @PreAuthorize("hasRole('ADMIN')")
++    @Operation(summary = "Resumo das solicitações com IA (Apenas ADMIN)",
++            description = "Indicadores agregados do período (sem dados pessoais) e um resumo com recomendações escrito pelo Gemini.")
++    public ResponseEntity<Map<String, Object>> gerarResumoIa(
++            @RequestParam(name = "dias", defaultValue = "30") int dias) {
++        return ResponseEntity.ok(trafficClient.gerarResumoIa(dias));
++    }
++
+     @GetMapping("/solicitacoes/{id}")
+     @Operation(summary = "Buscar solicitação de travessia por ID")
+     public ResponseEntity<Map<String, Object>> obterSolicitacao(@PathVariable(name = "id") Long id) {
+diff --git a/gateway-service/src/main/java/br/com/travessia/gateway/feign/AssistenteClient.java b/gateway-service/src/main/java/br/com/travessia/gateway/feign/AssistenteClient.java
+new file mode 100644
+index 0000000..8b17ac8
+--- /dev/null
++++ b/gateway-service/src/main/java/br/com/travessia/gateway/feign/AssistenteClient.java
+@@ -0,0 +1,17 @@
++package br.com.travessia.gateway.feign;
++
++import org.springframework.cloud.openfeign.FeignClient;
++import org.springframework.web.bind.annotation.PostMapping;
++import org.springframework.web.bind.annotation.RequestBody;
++
++import java.util.Map;
++
++@FeignClient(name = "assistente-faq", url = "${servico-iot.url:http://localhost:8083}")
++public interface AssistenteClient {
++
++    @PostMapping("/api/faq/perguntas")
++    Map<String, Object> perguntar(@RequestBody Map<String, Object> pergunta);
++
++    @PostMapping("/api/faq/orientacao")
++    Map<String, Object> orientar(@RequestBody Map<String, Object> pedido);
++}
+diff --git a/gateway-service/src/main/java/br/com/travessia/gateway/feign/DispositivoClient.java b/gateway-service/src/main/java/br/com/travessia/gateway/feign/DispositivoClient.java
+new file mode 100644
+index 0000000..c218144
+--- /dev/null
++++ b/gateway-service/src/main/java/br/com/travessia/gateway/feign/DispositivoClient.java
+@@ -0,0 +1,13 @@
++package br.com.travessia.gateway.feign;
++
++import org.springframework.cloud.openfeign.FeignClient;
++import org.springframework.web.bind.annotation.GetMapping;
++
++import java.util.Map;
++
++@FeignClient(name = "dispositivo-semaforo", url = "${servico-iot.url:http://localhost:8083}")
++public interface DispositivoClient {
++
++    @GetMapping("/api/iot/dispositivo")
++    Map<String, Object> consultarEstado();
++}
+diff --git a/gateway-service/src/main/java/br/com/travessia/gateway/feign/TrafficClient.java b/gateway-service/src/main/java/br/com/travessia/gateway/feign/TrafficClient.java
+index 44dc00f..0c19c37 100644
+--- a/gateway-service/src/main/java/br/com/travessia/gateway/feign/TrafficClient.java
++++ b/gateway-service/src/main/java/br/com/travessia/gateway/feign/TrafficClient.java
+@@ -60,6 +60,9 @@ public interface TrafficClient {
+     @GetMapping("/api/solicitacoes/{id}")
+     Map<String, Object> obterSolicitacao(@PathVariable("id") Long id);
+ 
++    @GetMapping("/api/solicitacoes/resumo-ia")
++    Map<String, Object> gerarResumoIa(@RequestParam("dias") int dias);
++
+     @PutMapping("/api/solicitacoes/{id}")
+     Map<String, Object> atualizarSolicitacao(@PathVariable("id") Long id, @RequestBody SolicitacaoTravessiaDto solicitacao);
+ 
+diff --git a/gateway-service/src/main/resources/application.yml b/gateway-service/src/main/resources/application.yml
+index 6209adf..4ab5faf 100644
+--- a/gateway-service/src/main/resources/application.yml
++++ b/gateway-service/src/main/resources/application.yml
+@@ -3,14 +3,26 @@ server:
+ spring:
+   application:
+     name: gateway-service
++  config:
++    import:
++      - optional:file:.env[.properties]
++      - optional:file:../.env[.properties]
+   cloud:
+     discovery:
+       enabled: true
+       client:
+         service-url:
+           defaultZone: ${EUREKA_URI:${SPRING_CLOUD_DISCOVERY_CLIENT_SERVICE-URL_DEFAULTZONE:http://eureka:8761/eureka/}}
++spring.cloud.openfeign.client.config.traffic-service:
++  connect-timeout: 5000
++  read-timeout: 90000
++spring.cloud.openfeign.client.config.assistente-faq:
++  connect-timeout: 3000
++  read-timeout: 60000
++servico-iot:
++  url: ${SERVICO_IOT_URL:http://localhost:8083}
+ traffic-service:
+-  url: ${TRAFFIC_SERVICE_URL:http://traffic:8081}
++  url: ${TRAFFIC_SERVICE_URL:http://localhost:8081}
+ jwt:
+   secret: ${JWT_SECRET:TravessIASecretKeyForHS256AlgorithmMinimum256BitsRequired2026Fiap}
+   expirationMs: ${JWT_EXPIRATION_MS:31536000000}
+diff --git a/traffic-service/pom.xml b/traffic-service/pom.xml
+index 1296c72..c9d3fd8 100644
+--- a/traffic-service/pom.xml
++++ b/traffic-service/pom.xml
+@@ -43,6 +43,11 @@
+             <groupId>org.flywaydb</groupId>
+             <artifactId>flyway-database-oracle</artifactId>
+         </dependency>
++        <dependency>
++            <groupId>org.springframework.boot</groupId>
++            <artifactId>spring-boot-starter-test</artifactId>
++            <scope>test</scope>
++        </dependency>
+     </dependencies>
+     <build>
+         <plugins>
+diff --git a/traffic-service/src/main/java/br/com/travessia/trafego/TrafficApplication.java b/traffic-service/src/main/java/br/com/travessia/trafego/TrafficApplication.java
+index 1404580..a37b7a6 100644
+--- a/traffic-service/src/main/java/br/com/travessia/trafego/TrafficApplication.java
++++ b/traffic-service/src/main/java/br/com/travessia/trafego/TrafficApplication.java
+@@ -5,7 +5,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
+ import org.springframework.cloud.openfeign.EnableFeignClients;
+ 
+ @SpringBootApplication(scanBasePackages = {"br.com.travessia.trafego", "br.com.travessia.comum.exception"})
+-@EnableFeignClients(basePackages = "br.com.travessia.comum.feign")
++@EnableFeignClients(basePackages = {"br.com.travessia.comum.feign", "br.com.travessia.trafego.cliente"})
+ public class TrafficApplication {
+     public static void main(String[] args) {
+         SpringApplication.run(TrafficApplication.class, args);
+diff --git a/traffic-service/src/main/java/br/com/travessia/trafego/cliente/ServicoIotCliente.java b/traffic-service/src/main/java/br/com/travessia/trafego/cliente/ServicoIotCliente.java
+new file mode 100644
+index 0000000..27ec45b
+--- /dev/null
++++ b/traffic-service/src/main/java/br/com/travessia/trafego/cliente/ServicoIotCliente.java
+@@ -0,0 +1,14 @@
++package br.com.travessia.trafego.cliente;
++
++import org.springframework.cloud.openfeign.FeignClient;
++import org.springframework.web.bind.annotation.PostMapping;
++import org.springframework.web.bind.annotation.RequestBody;
++
++import java.util.Map;
++
++@FeignClient(name = "servico-iot", url = "${servico-iot.url:http://localhost:8083}")
++public interface ServicoIotCliente {
++
++    @PostMapping("/api/iot/extensoes")
++    Map<String, Object> solicitarExtensao(@RequestBody Map<String, Object> pedido);
++}
+diff --git a/traffic-service/src/main/java/br/com/travessia/trafego/controller/ResumoIaController.java b/traffic-service/src/main/java/br/com/travessia/trafego/controller/ResumoIaController.java
+new file mode 100644
+index 0000000..641c862
+--- /dev/null
++++ b/traffic-service/src/main/java/br/com/travessia/trafego/controller/ResumoIaController.java
+@@ -0,0 +1,30 @@
++package br.com.travessia.trafego.controller;
++
++import br.com.travessia.trafego.servico.ServicoResumoIa;
++import org.springframework.http.ResponseEntity;
++import org.springframework.web.bind.annotation.GetMapping;
++import org.springframework.web.bind.annotation.RequestMapping;
++import org.springframework.web.bind.annotation.RequestParam;
++import org.springframework.web.bind.annotation.RestController;
++
++import java.util.Map;
++
++@RestController
++@RequestMapping("/api/solicitacoes")
++public class ResumoIaController {
++
++    private final ServicoResumoIa servicoResumoIa;
++
++    public ResumoIaController(ServicoResumoIa servicoResumoIa) {
++        this.servicoResumoIa = servicoResumoIa;
++    }
++
++    @GetMapping("/resumo-ia")
++    public ResponseEntity<Map<String, Object>> gerarResumo(
++            @RequestParam(name = "dias", defaultValue = "30") int dias) {
++        if (dias < 1 || dias > 365) {
++            throw new IllegalArgumentException("O período deve ter entre 1 e 365 dias");
++        }
++        return ResponseEntity.ok(servicoResumoIa.gerarResumo(dias));
++    }
++}
+diff --git a/traffic-service/src/main/java/br/com/travessia/trafego/entidade/SolicitacaoTravessia.java b/traffic-service/src/main/java/br/com/travessia/trafego/entidade/SolicitacaoTravessia.java
+index ac881f0..a33b59c 100644
+--- a/traffic-service/src/main/java/br/com/travessia/trafego/entidade/SolicitacaoTravessia.java
++++ b/traffic-service/src/main/java/br/com/travessia/trafego/entidade/SolicitacaoTravessia.java
+@@ -27,6 +27,17 @@ public class SolicitacaoTravessia {
+     @Column(name = "CONDICAO_CLIMATICA")
+     private String condicaoClimatica;
+ 
++    @Column(name = "STATUS_DISPOSITIVO", length = 30)
++    private String statusDispositivo;
++
++    @Column(name = "DETALHE_DISPOSITIVO", length = 200)
++    private String detalheDispositivo;
++
++    // Segundos que faltavam para o sinal de pedestres fechar quando o semaforo confirmou.
++    // Vale apenas para a resposta da criacao da solicitacao; nao e gravado no banco.
++    @Transient
++    private Integer travessiaRestanteSegundos;
++
+     public Long getId() {
+         return id;
+     }
+@@ -74,4 +85,28 @@ public class SolicitacaoTravessia {
+     public void setCondicaoClimatica(String condicaoClimatica) {
+         this.condicaoClimatica = condicaoClimatica;
+     }
++
++    public String getStatusDispositivo() {
++        return statusDispositivo;
++    }
++
++    public void setStatusDispositivo(String statusDispositivo) {
++        this.statusDispositivo = statusDispositivo;
++    }
++
++    public String getDetalheDispositivo() {
++        return detalheDispositivo;
++    }
++
++    public void setDetalheDispositivo(String detalheDispositivo) {
++        this.detalheDispositivo = detalheDispositivo;
++    }
++
++    public Integer getTravessiaRestanteSegundos() {
++        return travessiaRestanteSegundos;
++    }
++
++    public void setTravessiaRestanteSegundos(Integer travessiaRestanteSegundos) {
++        this.travessiaRestanteSegundos = travessiaRestanteSegundos;
++    }
+ }
+diff --git a/traffic-service/src/main/java/br/com/travessia/trafego/servico/ClienteIaComFallback.java b/traffic-service/src/main/java/br/com/travessia/trafego/servico/ClienteIaComFallback.java
+new file mode 100644
+index 0000000..d7415a3
+--- /dev/null
++++ b/traffic-service/src/main/java/br/com/travessia/trafego/servico/ClienteIaComFallback.java
+@@ -0,0 +1,69 @@
++package br.com.travessia.trafego.servico;
++
++import org.slf4j.Logger;
++import org.slf4j.LoggerFactory;
++import org.springframework.ai.chat.client.ChatClient;
++import org.springframework.ai.openai.OpenAiChatOptions;
++import org.springframework.beans.factory.annotation.Value;
++import org.springframework.stereotype.Component;
++
++import java.util.Arrays;
++import java.util.List;
++import java.util.Locale;
++import java.util.Optional;
++
++/**
++ * Envia o prompt ao Gemini tentando os modelos configurados em ordem.
++ * Quando um modelo esgota a cota (429), nao existe (404) ou esta indisponivel (5xx),
++ * o proximo da lista e usado. Erros de chave (401/403) interrompem as tentativas.
++ */
++@Component
++public class ClienteIaComFallback {
++
++    private static final Logger log = LoggerFactory.getLogger(ClienteIaComFallback.class);
++
++    private final ChatClient chatClient;
++    private final List<String> modelos;
++
++    public ClienteIaComFallback(ChatClient.Builder chatClientBuilder,
++                                @Value("${ia.modelos}") String modelosConfigurados) {
++        this.chatClient = chatClientBuilder.build();
++        this.modelos = Arrays.stream(modelosConfigurados.split(","))
++                .map(String::trim)
++                .filter(m -> !m.isEmpty())
++                .toList();
++    }
++
++    public Optional<String> perguntar(String prompt) {
++        for (String modelo : modelos) {
++            try {
++                String resposta = chatClient.prompt(prompt)
++                        .options(OpenAiChatOptions.builder().model(modelo).build())
++                        .call()
++                        .content();
++                log.info("Resposta obtida com o modelo {}", modelo);
++                return Optional.ofNullable(resposta);
++            } catch (Exception e) {
++                String mensagem = String.valueOf(e.getMessage());
++                if (erroDeCredencial(mensagem)) {
++                    log.warn("Chave da IA recusada; nenhum outro modelo sera tentado: {}", resumir(mensagem));
++                    return Optional.empty();
++                }
++                log.warn("Modelo {} indisponivel ({}); tentando o proximo", modelo, resumir(mensagem));
++            }
++        }
++        log.warn("Nenhum dos {} modelos configurados respondeu", modelos.size());
++        return Optional.empty();
++    }
++
++    private static boolean erroDeCredencial(String mensagem) {
++        String texto = mensagem.toLowerCase(Locale.ROOT);
++        return texto.contains("401") || texto.contains("403")
++                || texto.contains("api key not valid") || texto.contains("api key must be set")
++                || texto.contains("permission_denied") || texto.contains("unauthenticated");
++    }
++
++    private static String resumir(String mensagem) {
++        return mensagem.length() > 160 ? mensagem.substring(0, 160) + "..." : mensagem;
++    }
++}
+diff --git a/traffic-service/src/main/java/br/com/travessia/trafego/servico/ServicoComandoSemaforo.java b/traffic-service/src/main/java/br/com/travessia/trafego/servico/ServicoComandoSemaforo.java
+new file mode 100644
+index 0000000..1b45b2b
+--- /dev/null
++++ b/traffic-service/src/main/java/br/com/travessia/trafego/servico/ServicoComandoSemaforo.java
+@@ -0,0 +1,59 @@
++package br.com.travessia.trafego.servico;
++
++import br.com.travessia.trafego.cliente.ServicoIotCliente;
++import feign.FeignException;
++import org.slf4j.Logger;
++import org.slf4j.LoggerFactory;
++import org.springframework.stereotype.Service;
++
++import java.util.HashMap;
++import java.util.Map;
++
++/**
++ * Solicita ao servico IoT a extensao do tempo de travessia no semaforo simulado (ESP32/Wokwi)
++ * e traduz a resposta em um status para a solicitacao. O status so e EXECUTADO quando o
++ * dispositivo confirma; publicar o comando nao basta.
++ */
++@Service
++public class ServicoComandoSemaforo {
++
++    private static final Logger log = LoggerFactory.getLogger(ServicoComandoSemaforo.class);
++
++    private final ServicoIotCliente servicoIot;
++
++    public ServicoComandoSemaforo(ServicoIotCliente servicoIot) {
++        this.servicoIot = servicoIot;
++    }
++
++    public ResultadoComando estenderTravessia(Long solicitacaoId, Long semaforoId, String semaforoNome,
++                                              int segundosExtras) {
++        Map<String, Object> pedido = new HashMap<>();
++        pedido.put("solicitacaoId", solicitacaoId);
++        pedido.put("semaforoId", semaforoId);
++        pedido.put("semaforoNome", semaforoNome);
++        pedido.put("segundosExtras", segundosExtras);
++        try {
++            Map<String, Object> resposta = servicoIot.solicitarExtensao(pedido);
++            String status = String.valueOf(resposta.getOrDefault("status", "SEM_CONFIRMACAO"));
++            Object motivo = resposta.get("motivo");
++            Object aplicados = resposta.get("segundosAplicados");
++            Integer restante = resposta.get("travessiaRestanteSegundos") instanceof Number numero
++                    ? numero.intValue() : null;
++            String detalhe = "EXECUTADO".equals(status) && aplicados != null
++                    ? "Semaforo confirmou +" + aplicados + "s de travessia"
++                    : motivo != null ? motivo.toString() : null;
++            log.info("Solicitacao {} -> dispositivo respondeu {} ({})", solicitacaoId, status, detalhe);
++            return new ResultadoComando(status, detalhe, restante);
++        } catch (FeignException.Conflict e) {
++            return new ResultadoComando("SEMAFORO_OCUPADO",
++                    "Ja existe um pedido em andamento para este semaforo", null);
++        } catch (FeignException e) {
++            log.warn("Falha ao acionar o servico IoT: {}", e.getMessage());
++            return new ResultadoComando("FALHA_COMUNICACAO_IOT",
++                    "Servico IoT indisponivel; o semaforo nao foi acionado", null);
++        }
++    }
++
++    public record ResultadoComando(String status, String detalhe, Integer travessiaRestanteSegundos) {
++    }
++}
+diff --git a/traffic-service/src/main/java/br/com/travessia/trafego/servico/ServicoResumoIa.java b/traffic-service/src/main/java/br/com/travessia/trafego/servico/ServicoResumoIa.java
+new file mode 100644
+index 0000000..eb789a9
+--- /dev/null
++++ b/traffic-service/src/main/java/br/com/travessia/trafego/servico/ServicoResumoIa.java
+@@ -0,0 +1,148 @@
++package br.com.travessia.trafego.servico;
++
++import br.com.travessia.trafego.entidade.SolicitacaoTravessia;
++import br.com.travessia.trafego.repositorio.SolicitacaoTravessiaRepositorio;
++import org.slf4j.Logger;
++import org.slf4j.LoggerFactory;
++import org.springframework.stereotype.Service;
++
++import java.time.LocalDateTime;
++import java.util.HashSet;
++import java.util.LinkedHashMap;
++import java.util.List;
++import java.util.Map;
++import java.util.Set;
++import java.util.function.Function;
++import java.util.regex.Matcher;
++import java.util.regex.Pattern;
++import java.util.stream.Collectors;
++
++/**
++ * Resumo das solicitacoes para o gestor (ADMIN). Os indicadores sao calculados aqui, apenas com
++ * dados agregados (nenhum nome, idade ou localizacao de usuario), e o Gemini escreve o resumo e as
++ * recomendacoes. Se a IA falhar ou citar um numero que nao esta nos indicadores, o texto e montado
++ * sem IA a partir dos mesmos numeros.
++ */
++@Service
++public class ServicoResumoIa {
++
++    private static final Logger log = LoggerFactory.getLogger(ServicoResumoIa.class);
++    private static final Pattern NUMERO = Pattern.compile("\\d+");
++
++    private final SolicitacaoTravessiaRepositorio solicitacaoRepo;
++    private final ClienteIaComFallback clienteIa;
++
++    public ServicoResumoIa(SolicitacaoTravessiaRepositorio solicitacaoRepo, ClienteIaComFallback clienteIa) {
++        this.solicitacaoRepo = solicitacaoRepo;
++        this.clienteIa = clienteIa;
++    }
++
++    public Map<String, Object> gerarResumo(int dias) {
++        LocalDateTime inicio = LocalDateTime.now().minusDays(dias);
++        List<SolicitacaoTravessia> periodo = solicitacaoRepo.findAll().stream()
++                .filter(s -> s.getDataHoraSolicitacao() != null && s.getDataHoraSolicitacao().isAfter(inicio))
++                .toList();
++
++        long total = periodo.size();
++        long comChuva = periodo.stream().filter(s -> s.getSegundosExtras() == 10).count();
++        long confirmadas = periodo.stream()
++                .filter(s -> "EXECUTADO".equals(s.getStatusDispositivo()) || "ACEITO".equals(s.getStatusDispositivo()))
++                .count();
++        Map<String, Long> porSemaforo = contarOrdenado(periodo,
++                s -> s.getSemaforo() != null ? s.getSemaforo().getDescricao() : "Sem semáforo", 5);
++        Map<String, Long> porFaixaHorario = contarOrdenado(periodo, s -> faixaHorario(s.getDataHoraSolicitacao()), 4);
++        Map<String, Long> falhas = contarOrdenado(periodo.stream()
++                .filter(s -> s.getStatusDispositivo() != null
++                        && !"EXECUTADO".equals(s.getStatusDispositivo()) && !"ACEITO".equals(s.getStatusDispositivo()))
++                .toList(), SolicitacaoTravessia::getStatusDispositivo, 5);
++
++        Map<String, Object> indicadores = new LinkedHashMap<>();
++        indicadores.put("periodoDias", dias);
++        indicadores.put("totalSolicitacoes", total);
++        indicadores.put("solicitacoesComChuva", comChuva);
++        indicadores.put("percentualComChuva", percentual(comChuva, total));
++        indicadores.put("confirmadasPeloSemaforo", confirmadas);
++        indicadores.put("percentualConfirmadas", percentual(confirmadas, total));
++        indicadores.put("semaforosMaisUsados", porSemaforo);
++        indicadores.put("solicitacoesPorHorario", porFaixaHorario);
++        indicadores.put("falhasPorTipo", falhas);
++
++        Map<String, Object> resposta = new LinkedHashMap<>();
++        resposta.put("indicadores", indicadores);
++        if (total == 0) {
++            resposta.put("resumo", "Nenhuma solicitação de travessia nos últimos " + dias + " dias.");
++            resposta.put("geradoPorIa", false);
++            return resposta;
++        }
++
++        String textoIa = clienteIa.perguntar(montarPrompt(indicadores)).map(String::trim).orElse(null);
++        boolean valido = textoIa != null && !textoIa.isBlank() && textoIa.length() <= 2000
++                && numerosConferem(textoIa, indicadores);
++        if (textoIa != null && !valido) {
++            log.warn("Resumo da IA descartado (vazio, longo ou com numeros fora dos indicadores)");
++        }
++        resposta.put("resumo", valido ? textoIa : resumoSemIa(indicadores));
++        resposta.put("geradoPorIa", valido);
++        return resposta;
++    }
++
++    private String montarPrompt(Map<String, Object> indicadores) {
++        return "Você é analista de mobilidade urbana e escreve para o gestor do Travessia Inteligente, sistema que dá "
++                + "tempo extra de travessia a pessoas idosas e com deficiência (+5 s com tempo seco, +10 s com chuva). "
++                + "Com base SOMENTE nos indicadores abaixo, escreva em português do Brasil: um parágrafo de visão geral "
++                + "(até 3 frases) e depois exatamente 3 recomendações práticas para a prefeitura, uma por linha, cada "
++                + "uma começando com \"- \". Não invente números: use apenas os números dos indicadores. "
++                + "Não use markdown além do \"- \" das recomendações.\n\nINDICADORES:\n" + indicadores;
++    }
++
++    /** Todo numero citado no texto precisa existir nos indicadores (protecao contra numeros inventados). */
++    private boolean numerosConferem(String texto, Map<String, Object> indicadores) {
++        Set<String> permitidos = new HashSet<>(Set.of("5", "10", "15"));
++        Matcher noIndicador = NUMERO.matcher(indicadores.toString());
++        while (noIndicador.find()) {
++            permitidos.add(noIndicador.group());
++        }
++        Matcher noTexto = NUMERO.matcher(texto);
++        while (noTexto.find()) {
++            if (!permitidos.contains(noTexto.group())) {
++                log.warn("Numero {} citado pela IA nao esta nos indicadores", noTexto.group());
++                return false;
++            }
++        }
++        return true;
++    }
++
++    @SuppressWarnings("unchecked")
++    private String resumoSemIa(Map<String, Object> indicadores) {
++        Map<String, Long> semaforos = (Map<String, Long>) indicadores.get("semaforosMaisUsados");
++        String maisUsado = semaforos.isEmpty() ? "-" : semaforos.keySet().iterator().next();
++        return "Nos últimos " + indicadores.get("periodoDias") + " dias foram " + indicadores.get("totalSolicitacoes")
++                + " solicitações, " + indicadores.get("percentualComChuva") + "% com chuva e "
++                + indicadores.get("percentualConfirmadas") + "% confirmadas pelo semáforo. O semáforo mais usado foi "
++                + maisUsado + ".\n- Avaliar aumentar o tempo padrão de travessia nos semáforos mais usados."
++                + "\n- Verificar a conexão dos semáforos que tiveram falhas de confirmação."
++                + "\n- Divulgar o aplicativo perto dos cruzamentos com mais pedidos.";
++    }
++
++    private static Map<String, Long> contarOrdenado(List<SolicitacaoTravessia> lista,
++                                                    Function<SolicitacaoTravessia, String> chave, int limite) {
++        return lista.stream()
++                .collect(Collectors.groupingBy(chave, Collectors.counting()))
++                .entrySet().stream()
++                .sorted(Map.Entry.<String, Long>comparingByValue().reversed())
++                .limit(limite)
++                .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue, (a, b) -> a, LinkedHashMap::new));
++    }
++
++    private static String faixaHorario(LocalDateTime dataHora) {
++        int hora = dataHora.getHour();
++        if (hora < 6) return "madrugada (0h-6h)";
++        if (hora < 12) return "manhã (6h-12h)";
++        if (hora < 18) return "tarde (12h-18h)";
++        return "noite (18h-24h)";
++    }
++
++    private static long percentual(long parte, long total) {
++        return total == 0 ? 0 : Math.round(100.0 * parte / total);
++    }
++}
+diff --git a/traffic-service/src/main/java/br/com/travessia/trafego/servico/ServicoSolicitacaoTravessia.java b/traffic-service/src/main/java/br/com/travessia/trafego/servico/ServicoSolicitacaoTravessia.java
+index 31c67c0..4580c27 100644
+--- a/traffic-service/src/main/java/br/com/travessia/trafego/servico/ServicoSolicitacaoTravessia.java
++++ b/traffic-service/src/main/java/br/com/travessia/trafego/servico/ServicoSolicitacaoTravessia.java
+@@ -9,16 +9,15 @@ import br.com.travessia.trafego.repositorio.SolicitacaoTravessiaRepositorio;
+ import br.com.travessia.trafego.repositorio.UsuarioRepositorio;
+ import org.slf4j.Logger;
+ import org.slf4j.LoggerFactory;
+-import org.springframework.ai.chat.client.ChatClient;
+ import org.springframework.beans.factory.annotation.Value;
+ import org.springframework.stereotype.Service;
+-import org.springframework.transaction.annotation.Transactional;
+ 
+ import java.time.LocalDateTime;
+ import java.util.LinkedHashMap;
+ import java.util.List;
+ import java.util.Locale;
+ import java.util.Map;
++import java.util.stream.Collectors;
+ 
+ @Service
+ public class ServicoSolicitacaoTravessia {
+@@ -30,24 +29,28 @@ public class ServicoSolicitacaoTravessia {
+     private static final double RAIO_TERRA_METROS = 6371000.0;
+     public static final double RAIO_MAXIMO_PROXIMIDADE_METROS = 10.0;
+ 
++    // Regra do tempo extra: +10 s com chuva e +5 s com tempo seco.
++    public static final int SEGUNDOS_EXTRAS_CHUVA = 10;
++    public static final int SEGUNDOS_EXTRAS_SECO = 5;
++
+     private final UsuarioRepositorio usuarioRepo;
+     private final SemaforoRepositorio semaforoRepo;
+     private final SolicitacaoTravessiaRepositorio solicitacaoRepo;
+     private final ClimaCliente climaCliente;
+-    private final ChatClient chatClient;
++    private final ServicoComandoSemaforo comandoSemaforo;
+     private final String weatherApiKey;
+ 
+     public ServicoSolicitacaoTravessia(UsuarioRepositorio usuarioRepo,
+                                        SemaforoRepositorio semaforoRepo,
+                                        SolicitacaoTravessiaRepositorio solicitacaoRepo,
+                                        ClimaCliente climaCliente,
+-                                       ChatClient.Builder chatClientBuilder,
++                                       ServicoComandoSemaforo comandoSemaforo,
+                                        @Value("${weather.api-key}") String weatherApiKey) {
+         this.usuarioRepo = usuarioRepo;
+         this.semaforoRepo = semaforoRepo;
+         this.solicitacaoRepo = solicitacaoRepo;
+         this.climaCliente = climaCliente;
+-        this.chatClient = chatClientBuilder.build();
++        this.comandoSemaforo = comandoSemaforo;
+         this.weatherApiKey = weatherApiKey;
+     }
+ 
+@@ -83,7 +86,7 @@ public class ServicoSolicitacaoTravessia {
+         return status;
+     }
+ 
+-    @Transactional
++    // Sem @Transactional: a espera pela confirmacao do ESP32 nao deve segurar uma conexao do banco.
+     public SolicitacaoTravessia criarSolicitacao(Long usuarioId, Long semaforoId, Double latitudeUsuario, Double longitudeUsuario) {
+         Usuario usuario = usuarioRepo.findById(usuarioId)
+                 .orElseThrow(() -> new IllegalArgumentException("Usuário não encontrado"));
+@@ -108,8 +111,9 @@ public class ServicoSolicitacaoTravessia {
+                     distanciaMetros, RAIO_MAXIMO_PROXIMIDADE_METROS));
+         }
+ 
+-        String descricao = consultarCondicaoClimatica(semaforo.getLatitude(), semaforo.getLongitude());
+-        int segundosExtras = decidirSegundosExtrasComIA(descricao);
++        ClimaAtual clima = consultarClima(semaforo.getLatitude(), semaforo.getLongitude());
++        String descricao = clima.descricao();
++        int segundosExtras = decidirSegundosExtras(clima);
+ 
+         SolicitacaoTravessia solicitacao = new SolicitacaoTravessia();
+         solicitacao.setUsuario(usuario);
+@@ -117,7 +121,18 @@ public class ServicoSolicitacaoTravessia {
+         solicitacao.setDataHoraSolicitacao(LocalDateTime.now());
+         solicitacao.setSegundosExtras(segundosExtras);
+         solicitacao.setCondicaoClimatica(descricao);
+-        return solicitacaoRepo.save(solicitacao);
++        solicitacao.setStatusDispositivo("PENDENTE");
++        solicitacao = solicitacaoRepo.save(solicitacao);
++
++        ServicoComandoSemaforo.ResultadoComando resultado =
++                comandoSemaforo.estenderTravessia(solicitacao.getId(), semaforo.getId(),
++                        semaforo.getDescricao(), segundosExtras);
++        solicitacao.setStatusDispositivo(resultado.status());
++        solicitacao.setDetalheDispositivo(resultado.detalhe());
++        SolicitacaoTravessia salva = solicitacaoRepo.save(solicitacao);
++        // Campo nao persistido: definido depois do save, que devolve uma copia da entidade.
++        salva.setTravessiaRestanteSegundos(resultado.travessiaRestanteSegundos());
++        return salva;
+     }
+ 
+     public double calcularDistanciaMetros(double lat1, double lon1, double lat2, double lon2) {
+@@ -130,45 +145,48 @@ public class ServicoSolicitacaoTravessia {
+         return RAIO_TERRA_METROS * c;
+     }
+ 
+-    private String consultarCondicaoClimatica(double latitude, double longitude) {
++    /** Descricao do clima para o usuario e codigos de condicao do OpenWeatherMap (campo weather[].id). */
++    record ClimaAtual(String descricao, List<Integer> codigos) {
++    }
++
++    private ClimaAtual consultarClima(double latitude, double longitude) {
+         try {
+             Map<String, Object> clima = climaCliente.obterClima(latitude, longitude, weatherApiKey, "metric", "pt_br");
+             if (clima != null && clima.get("weather") instanceof List<?> weatherList && !weatherList.isEmpty()) {
+-                if (weatherList.get(0) instanceof Map<?, ?> firstWeather) {
+-                    Object description = firstWeather.get("description");
+-                    if (description != null && !description.toString().isBlank()) {
+-                        String desc = description.toString();
+-                        return Character.toUpperCase(desc.charAt(0)) + desc.substring(1);
+-                    }
++                List<Integer> codigos = weatherList.stream()
++                        .filter(Map.class::isInstance)
++                        .map(item -> ((Map<?, ?>) item).get("id"))
++                        .filter(Number.class::isInstance)
++                        .map(id -> ((Number) id).intValue())
++                        .toList();
++                // O OpenWeatherMap pode devolver varias condicoes (ex.: nevoa e chuva leve): todas sao exibidas.
++                String descricao = weatherList.stream()
++                        .filter(Map.class::isInstance)
++                        .map(item -> ((Map<?, ?>) item).get("description"))
++                        .filter(texto -> texto != null && !texto.toString().isBlank())
++                        .map(Object::toString)
++                        .distinct()
++                        .collect(Collectors.joining(", "));
++                if (descricao.isBlank()) {
++                    descricao = "Não informado";
+                 }
++                return new ClimaAtual(Character.toUpperCase(descricao.charAt(0)) + descricao.substring(1), codigos);
+             }
+         } catch (Exception e) {
+             log.warn("Falha ao consultar OpenWeatherMap: {}", e.getMessage());
+         }
+-        return "Céu limpo";
++        // Sem chave ou sem resposta do OpenWeatherMap: considera tempo seco.
++        return new ClimaAtual("Céu limpo", List.of());
+     }
+ 
+-    private int decidirSegundosExtrasComIA(String condicaoClimatica) {
+-        String prompt = String.format(
+-                "Condição climática atual informada pelo OpenWeatherMap: '%s'. " +
+-                "Regra: se houver indicação de chuva, garoa ou tempestade (ex.: chuva, garoa, chuvisco, tempestade, rain, drizzle, thunderstorm), " +
+-                "responda APENAS com o número 10. Caso esteja seco/limpo/nublado sem chuva, responda APENAS com o número 5.",
+-                condicaoClimatica
+-        );
+-        try {
+-            String resposta = chatClient.prompt(prompt).call().content();
+-            log.info("Condição climática: '{}' -> Resposta OpenAI: '{}'", condicaoClimatica, resposta);
+-            if (resposta != null) {
+-                int valor = Integer.parseInt(resposta.replaceAll("\\D", ""));
+-                if (valor == 5 || valor == 10) {
+-                    return valor;
+-                }
+-            }
+-        } catch (Exception e) {
+-            log.warn("Falha ao consultar OpenAI, aplicando regra de contingência: {}", e.getMessage());
+-        }
+-        String lower = condicaoClimatica.toLowerCase();
+-        return (lower.contains("chuva") || lower.contains("garoa") || lower.contains("chuvisco")
+-                || lower.contains("tempestade") || lower.contains("rain") || lower.contains("drizzle")) ? 10 : 5;
++    /**
++     * Chuva quando algum codigo de condicao do OpenWeatherMap indica precipitacao:
++     * 2xx tempestade, 3xx garoa, 5xx chuva e 6xx neve. Os demais (7xx nevoa, 800 ceu limpo,
++     * 80x nuvens) sao tempo seco.
++     */
++    static int decidirSegundosExtras(ClimaAtual clima) {
++        boolean chuva = clima.codigos().stream().anyMatch(codigo -> codigo >= 200 && codigo < 700);
++        log.info("Clima '{}' (codigos {}) -> {}", clima.descricao(), clima.codigos(), chuva ? "chuva" : "tempo seco");
++        return chuva ? SEGUNDOS_EXTRAS_CHUVA : SEGUNDOS_EXTRAS_SECO;
+     }
+ }
+diff --git a/traffic-service/src/main/resources/db/migration/V2__status_dispositivo.sql b/traffic-service/src/main/resources/db/migration/V2__status_dispositivo.sql
+new file mode 100644
+index 0000000..7e3029b
+--- /dev/null
++++ b/traffic-service/src/main/resources/db/migration/V2__status_dispositivo.sql
+@@ -0,0 +1,4 @@
++ALTER TABLE TB_TRAVESSIA_SOLICITACAO ADD (
++    STATUS_DISPOSITIVO VARCHAR2(30),
++    DETALHE_DISPOSITIVO VARCHAR2(200)
++);
+diff --git a/traffic-service/src/test/java/br/com/travessia/trafego/servico/RegraTempoExtraTest.java b/traffic-service/src/test/java/br/com/travessia/trafego/servico/RegraTempoExtraTest.java
+new file mode 100644
+index 0000000..4fc869d
+--- /dev/null
++++ b/traffic-service/src/test/java/br/com/travessia/trafego/servico/RegraTempoExtraTest.java
+@@ -0,0 +1,44 @@
++package br.com.travessia.trafego.servico;
++
++import org.junit.jupiter.api.Test;
++
++import java.util.List;
++
++import static org.junit.jupiter.api.Assertions.assertEquals;
++
++/** Regra do tempo extra pelos codigos de condicao do OpenWeatherMap: chuva +10 s, tempo seco +5 s. */
++class RegraTempoExtraTest {
++
++    private static int segundos(String descricao, Integer... codigos) {
++        return ServicoSolicitacaoTravessia.decidirSegundosExtras(
++                new ServicoSolicitacaoTravessia.ClimaAtual(descricao, List.of(codigos)));
++    }
++
++    @Test
++    void chuvaGaroaTempestadeENeveDaoDezSegundos() {
++        assertEquals(10, segundos("Trovoada com chuva fraca", 200));
++        assertEquals(10, segundos("Trovoadas", 211));
++        assertEquals(10, segundos("Garoa fraca", 300));
++        assertEquals(10, segundos("Chuva leve", 500));
++        assertEquals(10, segundos("Chuva forte", 502));
++        assertEquals(10, segundos("Neve", 601));
++    }
++
++    @Test
++    void tempoSecoDaCincoSegundos() {
++        assertEquals(5, segundos("Céu limpo", 800));
++        assertEquals(5, segundos("Algumas nuvens", 801));
++        assertEquals(5, segundos("Nublado", 804));
++        assertEquals(5, segundos("Névoa", 701));
++    }
++
++    @Test
++    void qualquerCondicaoDeChuvaNaListaContaComoChuva() {
++        assertEquals(10, segundos("Névoa", 701, 500));
++    }
++
++    @Test
++    void semDadosDoClimaConsideraTempoSeco() {
++        assertEquals(5, segundos("Céu limpo"));
++    }
++}
