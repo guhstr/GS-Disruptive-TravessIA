@@ -1,0 +1,367 @@
+{
+  "version": 1,
+  "author": "Travessia Inteligente",
+  "editor": "wokwi",
+  "parts": [
+    {
+      "type": "board-esp32-devkit-c-v4",
+      "id": "esp",
+      "top": 0,
+      "left": 0,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "r_veic_vermelho",
+      "top": 68.75,
+      "left": 170,
+      "attrs": {
+        "value": "220"
+      }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "veic_vermelho",
+      "top": 32.400000000000006,
+      "left": 245,
+      "attrs": {
+        "color": "red",
+        "flip": "1",
+        "label": "Veiculos"
+      }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "r_veic_amarelo",
+      "top": 128.75,
+      "left": 170,
+      "attrs": {
+        "value": "220"
+      }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "veic_amarelo",
+      "top": 92.4,
+      "left": 245,
+      "attrs": {
+        "color": "yellow",
+        "flip": "1"
+      }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "r_veic_verde",
+      "top": 188.75,
+      "left": 170,
+      "attrs": {
+        "value": "220"
+      }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "veic_verde",
+      "top": 152.4,
+      "left": 245,
+      "attrs": {
+        "color": "green",
+        "flip": "1"
+      }
+    },
+    {
+      "type": "wokwi-gnd",
+      "id": "gnd_veic",
+      "top": 220,
+      "left": 280,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "r_ped_vermelho",
+      "top": 79.55,
+      "left": -118.8,
+      "attrs": {
+        "value": "220"
+      }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "ped_vermelho",
+      "top": 43.2,
+      "left": -165,
+      "attrs": {
+        "color": "red",
+        "label": "Pedestres"
+      }
+    },
+    {
+      "type": "wokwi-resistor",
+      "id": "r_ped_verde",
+      "top": 139.55,
+      "left": -118.8,
+      "attrs": {
+        "value": "220"
+      }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "ped_verde",
+      "top": 103.19999999999999,
+      "left": -165,
+      "attrs": {
+        "color": "green"
+      }
+    },
+    {
+      "type": "wokwi-gnd",
+      "id": "gnd_ped",
+      "top": 170,
+      "left": -190,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-lcd1602",
+      "id": "lcd",
+      "top": -150,
+      "left": 200,
+      "attrs": {
+        "pins": "i2c"
+      }
+    },
+    {
+      "type": "wokwi-gnd",
+      "id": "gnd_lcd",
+      "top": -185,
+      "left": 182,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-vcc",
+      "id": "vcc_lcd",
+      "top": -140,
+      "left": 145,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-lcd1602",
+      "id": "lcd_semaforo",
+      "top": -150,
+      "left": -350,
+      "attrs": {
+        "pins": "i2c"
+      }
+    },
+    {
+      "type": "wokwi-gnd",
+      "id": "gnd_lcd_semaforo",
+      "top": -185,
+      "left": -368,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-vcc",
+      "id": "vcc_lcd_semaforo",
+      "top": -140,
+      "left": -405,
+      "attrs": {}
+    }
+  ],
+  "connections": [
+    [
+      "esp:TX",
+      "$serialMonitor:RX",
+      "",
+      []
+    ],
+    [
+      "esp:RX",
+      "$serialMonitor:TX",
+      "",
+      []
+    ],
+    [
+      "esp:17",
+      "r_veic_vermelho:1",
+      "green",
+      [
+        "h29.2",
+        "v-50.4"
+      ]
+    ],
+    [
+      "r_veic_vermelho:2",
+      "veic_vermelho:A",
+      "green",
+      []
+    ],
+    [
+      "esp:16",
+      "r_veic_amarelo:1",
+      "green",
+      []
+    ],
+    [
+      "r_veic_amarelo:2",
+      "veic_amarelo:A",
+      "green",
+      []
+    ],
+    [
+      "esp:4",
+      "r_veic_verde:1",
+      "green",
+      [
+        "h29.2",
+        "v50.4"
+      ]
+    ],
+    [
+      "r_veic_verde:2",
+      "veic_verde:A",
+      "green",
+      []
+    ],
+    [
+      "veic_vermelho:C",
+      "veic_amarelo:C",
+      "black",
+      [
+        "h20",
+        "v60"
+      ]
+    ],
+    [
+      "veic_amarelo:C",
+      "veic_verde:C",
+      "black",
+      [
+        "h20",
+        "v60"
+      ]
+    ],
+    [
+      "veic_verde:C",
+      "gnd_veic:GND",
+      "black",
+      [
+        "h20"
+      ]
+    ],
+    [
+      "esp:26",
+      "r_ped_vermelho:2",
+      "green",
+      [
+        "h-20",
+        "v-30"
+      ]
+    ],
+    [
+      "r_ped_vermelho:1",
+      "ped_vermelho:A",
+      "green",
+      []
+    ],
+    [
+      "esp:27",
+      "r_ped_verde:2",
+      "green",
+      [
+        "h-20",
+        "v20.4"
+      ]
+    ],
+    [
+      "r_ped_verde:1",
+      "ped_verde:A",
+      "green",
+      []
+    ],
+    [
+      "ped_vermelho:C",
+      "ped_verde:C",
+      "black",
+      [
+        "h-20",
+        "v60"
+      ]
+    ],
+    [
+      "ped_verde:C",
+      "gnd_ped:GND",
+      "black",
+      [
+        "h-20"
+      ]
+    ],
+    [
+      "lcd:GND",
+      "gnd_lcd:GND",
+      "black",
+      [
+        "h-12"
+      ]
+    ],
+    [
+      "lcd:VCC",
+      "vcc_lcd:VCC",
+      "red",
+      []
+    ],
+    [
+      "esp:23",
+      "lcd:SDA",
+      "blue",
+      [
+        "h11.2",
+        "v-137.4"
+      ]
+    ],
+    [
+      "esp:22",
+      "lcd:SCL",
+      "blue",
+      [
+        "h19.2",
+        "v-137.5"
+      ]
+    ],
+    [
+      "lcd_semaforo:GND",
+      "gnd_lcd_semaforo:GND",
+      "black",
+      [
+        "h-12"
+      ]
+    ],
+    [
+      "lcd_semaforo:VCC",
+      "vcc_lcd_semaforo:VCC",
+      "red",
+      []
+    ],
+    [
+      "esp:32",
+      "lcd_semaforo:SCL",
+      "blue",
+      [
+        "h-5",
+        "v-76.4",
+        "h-355.6",
+        "v-99.5"
+      ]
+    ],
+    [
+      "esp:33",
+      "lcd_semaforo:SDA",
+      "blue",
+      [
+        "h-10",
+        "v-76",
+        "h-356.6",
+        "v-119"
+      ]
+    ]
+  ],
+  "dependencies": {}
+}
