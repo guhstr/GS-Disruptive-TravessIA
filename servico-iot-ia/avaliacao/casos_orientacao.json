@@ -1,0 +1,7 @@
+[
+  {"clima": "Chuva leve", "segundos": 10, "periodo": "dia"},
+  {"clima": "Garoa fraca", "segundos": 10, "periodo": "noite"},
+  {"clima": "Trovoadas", "segundos": 10, "periodo": "dia"},
+  {"clima": "Céu limpo", "segundos": 5, "periodo": "dia"},
+  {"clima": "Nublado", "segundos": 5, "periodo": "noite"}
+]
