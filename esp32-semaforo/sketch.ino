@@ -246,6 +246,17 @@ void publicarEstado() {
   doc["fase"] = NOMES_FASE[faseAtual];
   doc["extensaoPendente"] = extensaoPendenteSeg;
   doc["semaforoAtual"] = semaforoAtualId;
+  // Relogio do ESP32: permite medir as fases no tempo da simulacao, que pode rodar mais devagar.
+  doc["tempoMs"] = millis();
+  // Quanto falta para o sinal de pedestres fechar (0 fora da travessia). O app mostra este valor,
+  // assim a contagem do celular acompanha o relogio do ESP32 e o LCD.
+  doc["travessiaRestanteMs"] = msRestantesTravessia();
+  // Com o sinal de pedestres fechado, informa quanto falta para ele abrir (mesmo valor do LCD).
+  if (faseAtual != PEDESTRE_VERDE && faseAtual != PEDESTRE_PISCANDO) {
+    unsigned long decorrido = millis() - inicioFaseMs;
+    unsigned long restanteFase = decorrido >= duracaoFaseMs ? 0 : duracaoFaseMs - decorrido;
+    doc["aberturaPedestreMs"] = msAte(PEDESTRE_VERDE, restanteFase);
+  }
   String json;
   serializeJson(doc, json);
   mqtt.publish(topicoEstado.c_str(), json.c_str(), true);
@@ -275,10 +286,19 @@ int indiceNoHistorico(const String &requestId) {
   return -1;
 }
 
+// Tempo que ainda falta para fechar o sinal de pedestres (verde fixo + verde piscando).
+unsigned long msRestantesTravessia() {
+  unsigned long decorrido = millis() - inicioFaseMs;
+  unsigned long restanteFase = decorrido >= duracaoFaseMs ? 0 : duracaoFaseMs - decorrido;
+  if (faseAtual == PEDESTRE_VERDE) return restanteFase + DURACAO_PED_PISCANDO_MS;
+  if (faseAtual == PEDESTRE_PISCANDO) return restanteFase;
+  return 0;
+}
+
 void responder(int semaforoId, const String &requestId, const char *status, const char *detalheChave,
                const char *detalheValor, int segundosAplicados = -1) {
   if (strcmp(status, "REJEITADO") == 0) {
-    Serial.printf("[SOLICITACAO] Pedido de mais tempo recusado: %s\n", detalheValor);
+    Serial.printf("[SOLICITACAO] Pedido de mais tempo recusado: %s\r\n", detalheValor);
   }
   JsonDocument doc;
   doc["requestId"] = requestId;
@@ -286,11 +306,13 @@ void responder(int semaforoId, const String &requestId, const char *status, cons
   doc["bootId"] = bootId;
   if (detalheChave) doc[detalheChave] = detalheValor;
   if (segundosAplicados >= 0) doc["segundosAplicados"] = segundosAplicados;
+  // O app usa este valor para mostrar a contagem regressiva e avisar quando a travessia terminou.
+  if (strcmp(status, "EXECUTADO") == 0) doc["travessiaRestanteMs"] = msRestantesTravessia();
   String json;
   serializeJson(doc, json);
   lembrarResposta(requestId, semaforoId, json);
   mqtt.publish(topicoConfirmacao(semaforoId).c_str(), json.c_str());
-  Serial.printf("[MQTT] confirmacao -> %s\n", json.c_str());
+  Serial.printf("[MQTT] confirmacao -> %s\r\n", json.c_str());
 }
 
 // ---------------- Fases ----------------
@@ -308,7 +330,7 @@ void entrarFase(Fase nova, unsigned long agora) {
       if (extensaoPendenteSeg > 0) {
         duracaoFaseMs += (unsigned long)extensaoPendenteSeg * 1000UL;
         extensaoAplicadaNestaTravessia = true;
-        Serial.printf("[SOLICITACAO] Tempo extra aplicado: travessia com %lu s (%lu s padrao + %d s extras)\n",
+        Serial.printf("[SOLICITACAO] Tempo extra aplicado: travessia com %lu s (%lu s padrao + %d s extras)\r\n",
                       (TEMPO_TRAVESSIA_PADRAO_MS / 1000UL) + extensaoPendenteSeg,
                       TEMPO_TRAVESSIA_PADRAO_MS / 1000UL, extensaoPendenteSeg);
         responder(semaforoPendenteId, requestIdPendente, "EXECUTADO", nullptr, nullptr, extensaoPendenteSeg);
@@ -319,7 +341,7 @@ void entrarFase(Fase nova, unsigned long agora) {
     default: duracaoFaseMs = DURACAO_TODOS_VERMELHO_MS; break;
   }
 
-  Serial.printf("[FASE] %s por %lu ms\n", NOMES_FASE[nova], duracaoFaseMs);
+  Serial.printf("[FASE] %s por %lu ms\r\n", NOMES_FASE[nova], duracaoFaseMs);
   atualizarLeds(agora);
   publicarEstado();
 }
@@ -364,8 +386,8 @@ void tratarComando(int semaforoId, const String &payload) {
   posicaoRolagem = 0;
 
   Serial.println("==================================================");
-  Serial.printf("[SOLICITACAO] Semaforo #%d (%s)\n", semaforoId, semaforoAtualNome.c_str());
-  Serial.printf("[SOLICITACAO] Pedestre pediu mais tempo pelo app: +%d s (fase atual: %s)\n",
+  Serial.printf("[SOLICITACAO] Semaforo #%d (%s)\r\n", semaforoId, semaforoAtualNome.c_str());
+  Serial.printf("[SOLICITACAO] Pedestre pediu mais tempo pelo app: +%d s (fase atual: %s)\r\n",
                 segundos, NOMES_FASE[faseAtual]);
 
   if (acao != "ESTENDER_TRAVESSIA") {
@@ -384,7 +406,7 @@ void tratarComando(int semaforoId, const String &payload) {
   if (faseAtual == PEDESTRE_VERDE) {
     duracaoFaseMs += (unsigned long)segundos * 1000UL;
     extensaoAplicadaNestaTravessia = true;
-    Serial.printf("[SOLICITACAO] Travessia em andamento: +%d s (total %lu s = %lu s padrao + %d s extras)\n",
+    Serial.printf("[SOLICITACAO] Travessia em andamento: +%d s (total %lu s = %lu s padrao + %d s extras)\r\n",
                   segundos, (TEMPO_TRAVESSIA_PADRAO_MS / 1000UL) + segundos,
                   TEMPO_TRAVESSIA_PADRAO_MS / 1000UL, segundos);
     responder(semaforoId, requestId, "ACEITO", "execucao", "IMEDIATA");
@@ -394,7 +416,7 @@ void tratarComando(int semaforoId, const String &payload) {
     extensaoPendenteSeg = segundos;
     requestIdPendente = requestId;
     semaforoPendenteId = semaforoId;
-    Serial.printf("[SOLICITACAO] Sinal de pedestre fechado: +%d s agendado para a proxima travessia\n",
+    Serial.printf("[SOLICITACAO] Sinal de pedestre fechado: +%d s agendado para a proxima travessia\r\n",
                   segundos);
     responder(semaforoId, requestId, "ACEITO", "execucao", "PROXIMA_TRAVESSIA");
   }
@@ -406,7 +428,7 @@ void aoReceberMensagem(char *topico, byte *conteudo, unsigned int tamanho) {
   String payload;
   payload.reserve(tamanho);
   for (unsigned int i = 0; i < tamanho; i++) payload += (char)conteudo[i];
-  Serial.printf("[MQTT] %s <- %s\n", topico, payload.c_str());
+  Serial.printf("[MQTT] %s <- %s\r\n", topico, payload.c_str());
 
   // Topico esperado: <prefixo>/semaforo/<id>/comando
   String t = topico;
@@ -431,10 +453,10 @@ void manterConexao(unsigned long agora) {
   Serial.println("[MQTT] conectando ao broker...");
   if (mqtt.connect(clientId.c_str(), topicoEstado.c_str(), 1, true, lwt.c_str())) {
     mqtt.subscribe(topicoComandos.c_str(), 1);
-    Serial.printf("[MQTT] conectado; ouvindo %s\n", topicoComandos.c_str());
+    Serial.printf("[MQTT] conectado; ouvindo %s\r\n", topicoComandos.c_str());
     publicarEstado();
   } else {
-    Serial.printf("[MQTT] falha (rc=%d); o semaforo segue o ciclo normal\n", mqtt.state());
+    Serial.printf("[MQTT] falha (rc=%d); o semaforo segue o ciclo normal\r\n", mqtt.state());
   }
 }
 
@@ -458,13 +480,17 @@ void setup() {
   lcdSemaforo.begin(16, 2, Wire1);
   lcdSemaforo.setBacklight(255);
 
-  Serial.printf("Travessia Inteligente - controlador simulado (boot %s)\n", bootId.c_str());
+  Serial.printf("Travessia Inteligente - controlador simulado (boot %s)\r\n", bootId.c_str());
   entrarFase(TODOS_VERMELHO, millis());
 
   WiFi.begin(WIFI_SSID, WIFI_SENHA, 6);
   mqtt.setServer(MQTT_HOST, MQTT_PORTA);
   mqtt.setCallback(aoReceberMensagem);
   mqtt.setBufferSize(512);
+  // O simulador pode rodar bem mais devagar que o tempo real; com o keepalive padrao (15 s) o broker
+  // chegava a considerar o ESP32 desconectado e publicava o LWT no meio de um comando.
+  mqtt.setKeepAlive(60);
+  mqtt.setSocketTimeout(30);
 }
 
 void loop() {
@@ -479,4 +505,19 @@ void loop() {
   }
   atualizarContagem(agora);
   atualizarPainelSemaforo(agora);
+
+  // Durante a travessia, ou enquanto um tempo extra espera o sinal abrir, o estado e publicado
+  // sempre que o numero da contagem muda no LCD, para o app mostrar o mesmo valor.
+  static unsigned long ultimoSegundoPublicado = 0;
+  bool pedestreAberto = faseAtual == PEDESTRE_VERDE || faseAtual == PEDESTRE_PISCANDO;
+  if (pedestreAberto || extensaoPendenteSeg > 0) {
+    unsigned long decorrido = agora - inicioFaseMs;
+    unsigned long restanteFase = decorrido >= duracaoFaseMs ? 0 : duracaoFaseMs - decorrido;
+    unsigned long segundoAtual = pedestreAberto ? emSegundos(msRestantesTravessia())
+                                                : emSegundos(msAte(PEDESTRE_VERDE, restanteFase));
+    if (segundoAtual != ultimoSegundoPublicado) {
+      ultimoSegundoPublicado = segundoAtual;
+      publicarEstado();
+    }
+  }
 }
