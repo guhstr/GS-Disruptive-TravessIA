@@ -1,0 +1,38 @@
+# Variaveis de ambiente e segredos
+.env
+.env.*
+!.env.example
+
+# Build Java / Maven
+target/
+**/target/
+
+# Node / Expo
+node_modules/
+.expo/
+
+# PlatformIO / Wokwi local
+.pio/
+.wokwi/
+
+# IDE e sistema operacional
+.idea/
+.vscode/
+*.iml
+.DS_Store
+
+# Logs
+*.log
+
+# Python
+.venv/
+__pycache__/
+.pytest_cache/
+
+# Indice vetorial do RAG (gerado a partir de base-conhecimento/)
+servico-iot-ia/dados/
+
+# Arquivos locais para rodar o Wokwi no VS Code (nao fazem parte da entrega)
+esp32-semaforo/build/
+esp32-semaforo/wokwi.toml
+esp32-semaforo/compilar.sh
