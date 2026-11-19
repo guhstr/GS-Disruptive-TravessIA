@@ -2,9 +2,6 @@
 
 Global Solution - FIAP - Disruptive Architectures: IoT, IoB & Generative IA
 
-Link do Youtube:
-Link do Github: https://github.com/guhstr/GS-Disruptive-TravessIA
-
 Integrante | RM 
 
 Erik Naoki Miyasato | 565771 
